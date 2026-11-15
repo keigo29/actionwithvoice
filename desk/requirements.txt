@@ -1,0 +1,8 @@
+# 常駐に必要なもの（macOS）
+sounddevice
+pynput
+numpy
+# 音声入力：Apple Silicon なら mlx-whisper（whisper.cpp を使うなら不要）
+mlx-whisper; sys_platform == "darwin" and platform_machine == "arm64"
+# ウェイクワードを使うときだけ
+# openwakeword

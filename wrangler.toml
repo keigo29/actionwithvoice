@@ -1,0 +1,11 @@
+name = "actionwithvoice"
+main = "src/index.js"
+compatibility_date = "2025-06-01"
+
+# 秘密の値（GITHUB_TOKEN / OPENAI_API_KEY / ACCESS_KEY）はここに書かない。
+# GitHub の Secrets に入れておくと、デプロイのときに Cloudflare に渡される（README 参照）
+[vars]
+REPO_OWNER = "keigo29"
+REPO_NAME = "Cmd"
+BRANCH = "main"
+MODEL = "gpt-4o-mini"
