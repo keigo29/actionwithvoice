@@ -40,6 +40,8 @@ export function buildMessages(question, docs, now = jstParts()) {
     "箇条書きや Markdown 記号、URL は使わないでください。",
     "下の「Cmd のノート」は持ち主の個人ナレッジ・やること・予定です。それで答えられる質問には、それを使って答えてください。",
     "ノートに書かれていないことを、書いてあるかのように言わないでください。わからなければ、わからないと短く言ってください。",
+    "デイリーの先頭のプロパティ（exercise: 1 など）は毎日確認のチェックです。1 はできた、0 はまだか外した、という意味です。項目名との対応は Notes/毎日確認.md の表の「プロパティ」の列にあります。",
+    "デイリーの「- 気分 4/5」は気分（1〜5、5がとても良い）、「- 体重 70.5kg」は体重の記録です。",
     `現在の日時：${now.label}（日本時間）`,
   ].join("\n");
   const notes = docs.map((d) => `## ファイル：${d.path}\n${d.text}`).join("\n\n");
@@ -115,7 +117,7 @@ export async function handleAsk(request, env, ctx) {
 
   const paths = await listNotes(env);
   const docs = await readFiles(env, paths);
-  const picked = selectDocs(question, docs, { always: [now.dailyPath, "Inbox.md"] });
+  const picked = selectDocs(question, docs, { always: [now.dailyPath, "Inbox.md", "Notes/毎日確認.md"] });
   const answer = await askAI(env, buildMessages(question, picked, now));
 
   // 保存は回答を返したあとに続ける（待たせないため）

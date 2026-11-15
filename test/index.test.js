@@ -26,6 +26,7 @@ beforeEach(() => {
     "Inbox.md": "# Inbox\n- [ ] 牛乳を買う",
     "Notes/筋トレの記録.md": "ベンチプレス 60kg",
     "Notes/家計.md": "貯金は毎月3万円",
+    "Notes/毎日確認.md": "| 運動 | dumbbell | #00c230 | 月水日 | exercise |",
   };
   notes[jstParts().dailyPath] = "## 予定\n- 19:00 飲み会";
   realFetch = globalThis.fetch;
@@ -98,6 +99,7 @@ test("isNote はデータやテンプレートを読まない", () => {
 test("buildMessages は現在の日時とノートを入れる", () => {
   const m = buildMessages("質問", [{ path: "Inbox.md", text: "本文" }], jstParts(new Date("2026-11-13T00:00:00Z")));
   assert.match(m[0].content, /現在の日時：2026-11-13（金） 09:00/);
+  assert.match(m[0].content, /1 はできた、0 はまだか外した/);
   assert.match(m[1].content, /## ファイル：Inbox.md\n本文/);
   assert.match(m[1].content, /# 質問\n質問$/);
 });
@@ -131,6 +133,7 @@ test("質問に答えて、Q&A を Data/voice に置く", async () => {
   assert.match(userMsg, /デイリー\.md/);
   assert.match(userMsg, /Inbox\.md/);
   assert.match(userMsg, /筋トレの記録/);
+  assert.match(userMsg, /毎日確認\.md/); // チェックの意味が分かるよう必ず渡す
   assert.doesNotMatch(userMsg, /貯金/); // 関係ないノートは渡さない
 
   const gql = calls.find((c) => c.url.endsWith("/graphql"));
