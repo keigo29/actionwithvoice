@@ -25,7 +25,7 @@ DEFAULTS: dict = {
     "claude": {"bin": "claude", "model": "", "timeout": 180},
     "wake": {
         "enabled": False,
-        # openWakeWord のモデル（.onnx / .tflite）。「ローズ」は自分で学習させたものを指定
+        # openWakeWord のモデル（.onnx / .tflite）。「ゼロ」は自分で学習させたものを指定
         "model": "",
         "threshold": 0.5,
         # 呼ばれたあと、この秒数黙ったら聞き取りを終える
