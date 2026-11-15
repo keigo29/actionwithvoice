@@ -1,0 +1,36 @@
+# config.toml にコピーして使う（config.toml は Git に入れない）
+
+cmd_dir = "~/Cmd"            # Cmd のローカルクローン
+hotkey = "alt_r"             # 押している間だけ聞く（右 Option）。f13 や "§" なども可
+conversation_timeout = 300   # この秒数以内なら前の話の続き
+
+[stt]
+engine = "auto"              # auto / mlx / whisper_cpp
+mlx_model = "mlx-community/whisper-large-v3-turbo"
+whisper_cpp_bin = "whisper-cli"
+whisper_cpp_model = "~/models/ggml-medium.bin"
+
+[tts]
+voice = "Kyoko"              # say -v '?' で一覧。システム設定で「Kyoko（拡張）」を入れると自然になる
+rate = 210
+
+[claude]
+bin = "claude"
+model = ""                   # 空なら Claude Code の既定
+timeout = 180
+
+[wake]
+enabled = false
+model = ""                   # openWakeWord のモデル（例 ~/models/rose.onnx）
+threshold = 0.5
+silence_sec = 1.2
+max_sec = 15
+
+[ui]
+enabled = true
+port = 8765
+open_browser = true
+
+[log]
+enabled = true               # Cmd の Data/voice/ に Q&A を置く
+push = true                  # 置いたら push する（Actions がデイリーに追記）

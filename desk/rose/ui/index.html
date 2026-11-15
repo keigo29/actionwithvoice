@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ローズ</title>
+<style>
+  :root {
+    --bg: #0b0d12; --fg: #e8eaf0; --muted: #8a90a2;
+    --idle: #4a5cff; --listening: #00d1b2; --thinking: #ffae00; --speaking: #ff5ab4; --confirm: #ff5a3c;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px;
+    padding: 16px; overflow: hidden;
+  }
+  .orb {
+    --c: var(--idle);
+    width: min(46vmin, 320px); aspect-ratio: 1; border-radius: 50%;
+    background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--c) 85%, white) 0%, var(--c) 35%, color-mix(in srgb, var(--c) 30%, transparent) 62%, transparent 72%);
+    box-shadow: 0 0 60px 10px color-mix(in srgb, var(--c) 45%, transparent);
+    transition: box-shadow .4s;
+    animation: breathe 4s ease-in-out infinite;
+  }
+  .orb[data-state="listening"] { --c: var(--listening); animation: pulse 0.9s ease-in-out infinite; }
+  .orb[data-state="thinking"]  { --c: var(--thinking); animation: spin 1.6s linear infinite; }
+  .orb[data-state="speaking"]  { --c: var(--speaking); animation: talk .45s ease-in-out infinite alternate; }
+  .orb[data-state="confirm"]   { --c: var(--confirm); animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes breathe { 50% { transform: scale(.94); opacity: .75; } }
+  @keyframes pulse { 50% { transform: scale(1.08); } }
+  @keyframes talk { to { transform: scale(1.05, .96); } }
+  @keyframes spin { to { transform: rotate(360deg) scale(.98); filter: hue-rotate(30deg); } }
+  .label { font-size: 15px; letter-spacing: .2em; color: var(--muted); }
+  .text { max-width: 720px; text-align: center; font-size: 20px; line-height: 1.6; min-height: 3.2em; }
+  .q { max-width: 720px; text-align: center; color: var(--muted); font-size: 14px; min-height: 1.4em; }
+  @media (prefers-reduced-motion: reduce) { .orb { animation: none !important; } }
+</style>
+</head>
+<body>
+  <div class="orb" id="orb" data-state="idle"></div>
+  <div class="label" id="label">待機中</div>
+  <div class="text" id="text"></div>
+  <div class="q" id="q"></div>
+<script>
+  const LABELS = { idle: "待機中", listening: "聞いています", thinking: "考えています", speaking: "話しています", confirm: "確認待ち（はい／いいえ）" };
+  const orb = document.getElementById("orb");
+  const label = document.getElementById("label");
+  const text = document.getElementById("text");
+  const q = document.getElementById("q");
+  function connect() {
+    const es = new EventSource("/events");
+    es.onmessage = (e) => {
+      const s = JSON.parse(e.data);
+      orb.dataset.state = s.state;
+      label.textContent = LABELS[s.state] || s.state;
+      text.textContent = s.text || s.answer || "";
+      q.textContent = s.question ? "🎙 " + s.question : "";
+    };
+    es.onerror = () => { label.textContent = "つながっていません（ローズが止まっています）"; orb.dataset.state = "idle"; };
+  }
+  connect();
+</script>
+</body>
+</html>

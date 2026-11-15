@@ -19,6 +19,20 @@ jobs:
           node-version: '22'
       - run: npm test
 
+  desk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: ローズ（desk）のテスト
+        working-directory: desk
+        run: |
+          git config --global user.name test
+          git config --global user.email test@example.com
+          python3 -m unittest discover -s tests -t . -v
+
   deploy:
     needs: test
     if: github.event_name != 'pull_request'
