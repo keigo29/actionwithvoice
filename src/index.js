@@ -4,6 +4,7 @@
 
 import { listNotes, readFiles, createFile } from "./github.js";
 import { selectDocs } from "./search.js";
+import { corsHeaders, normalizeReview, saveReview } from "./closet.js";
 
 const JST_OFFSET = 9 * 60 * 60 * 1000;
 
@@ -99,6 +100,29 @@ function checkKey(request, env) {
   return diff === 0;
 }
 
+/** クローゼットアプリからの 👍／👎（ブラウザから来るので CORS を付ける） */
+export async function handleClosetReview(request, env) {
+  const cors = corsHeaders(request);
+  const send = (data, status) =>
+    new Response(JSON.stringify(data), {
+      status,
+      headers: { "Content-Type": "application/json; charset=utf-8", ...cors },
+    });
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+  if (request.method !== "POST") return send({ error: "POST で送ってください" }, 405);
+  if (!checkKey(request, env)) return send({ error: "合言葉が違います" }, 401);
+  const body = await request.json().catch(() => null);
+  const review = normalizeReview(body, jstParts().iso);
+  if (!review) return send({ error: "レビューの形が正しくありません" }, 400);
+  try {
+    const count = await saveReview(env, review);
+    return send({ ok: true, count }, 200);
+  } catch (e) {
+    console.error(e);
+    return send({ error: e.message }, 502);
+  }
+}
+
 export async function handleAsk(request, env, ctx) {
   const url = new URL(request.url);
   const asJson = url.searchParams.get("format") === "json";
@@ -135,6 +159,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/") return new Response("ok");
+    if (url.pathname === "/closet/review") return handleClosetReview(request, env);
     if (url.pathname !== "/ask") return new Response("Not Found", { status: 404 });
     if (request.method !== "POST") return new Response("POST で送ってください", { status: 405 });
     try {

@@ -32,6 +32,15 @@
 
 エラーのときも、読み上げられる日本語の文が返ります（401 合言葉違い／400 質問が空／502 GitHub や AI の失敗）。
 
+## クローゼットアプリのレビュー（`/closet/review`）
+
+クローゼットアプリ（https://keigo29.github.io/Closet/ ）の 👍／👎 を、Cmd の `Data/closet/reviews.json` に書き戻します。
+
+- `POST /closet/review`、ヘッダー `Authorization: Bearer <合言葉>`（`/ask` と同じ ACCESS_KEY）
+- 本文：`{"id": "today-2026-11-16", "date": "2026-11-16", "source": "today", "items": ["outer-002", "bottom-001"], "vote": 1}`。消すときは `{"id": "...", "delete": true}`
+- 同じ id は上書きします。ブラウザから呼ぶので、`https://keigo29.github.io` からの CORS を許可しています
+- 追加の設定はいりません（CMD_TOKEN と ACCESS_KEY をそのまま使います）
+
 ## はじめの設定（1回だけ）
 
 ### 1. 用意するもの
