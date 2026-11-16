@@ -56,6 +56,7 @@
 ### 2. GitHub の Secrets に入れる
 
 この actionwithvoice リポジトリの Settings → Secrets and variables → Actions →「New repository secret」で、上の5つを同じ名前で入れます。
+`CMD_TOKEN`・`OPENAI_API_KEY`・`ACCESS_KEY` は、Cloudflare の Worker に直接入れてあるなら GitHub には入れなくてもかまいません（入っていないものは Cloudflare 側の値をそのまま使います）。
 
 ### 3. デプロイ
 
