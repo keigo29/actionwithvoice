@@ -31,6 +31,11 @@ enabled = true
 port = 8765
 open_browser = true
 
+[weather]
+place = "横浜"               # 画面に出す天気の場所
+latitude = 35.44
+longitude = 139.64
+
 [log]
 enabled = true               # Cmd の Data/voice/ に Q&A を置く
 push = true                  # 置いたら push する（Actions がデイリーに追記）

@@ -7,11 +7,22 @@ import threading
 import time
 from pathlib import Path
 
-from . import cmdlog, stt
+import re
+
+from . import cmdlog, scenes, shots, stt, visuals
 from .audio import MIN_SEC, duration, save_wav
 from .brain import RESET_RE, classify_reply, is_confirm
 
 CONFIRMED_PROMPT = "はい、さきほど確認した操作を実行してください。終わったら結果を短く教えてください。"
+
+# 画面を見せながら話しているとき（話し終えたあとも）、Claude を呼ばずに扱う言葉
+_END = r"[。.!！]?$"
+NEXT_RE = re.compile(r"^(次|つぎ|次へ|次の|進んで|続けて|続き)" + _END)
+BACK_RE = re.compile(r"^(戻って|もどって|前|まえ|前の|一つ前|ひとつ前)" + _END)
+AGAIN_RE = re.compile(r"^(もう一回|もう一度|もういっかい|最初から)" + _END)
+BIG_RE = re.compile(r"^(大きく|おおきく|拡大)" + _END)
+SMALL_RE = re.compile(r"^(小さく|ちいさく|戻して|元に戻して)" + _END)
+CLOSE_RE = re.compile(r"^(閉じて|画面を閉じて|画面を消して)" + _END)
 
 
 class Assistant:
@@ -29,10 +40,15 @@ class Assistant:
         self.awaiting_confirm = False
         self.worker: threading.Thread | None = None
         self.busy = threading.Event()
+        self.deck: list[scenes.Scene] = []  # 今の返事の場面
+        self.pos = -1                        # 今見せている場面
+        self.cut = threading.Event()         # 割り込まれた（キーを押した）
+        self.shot = shots.capture
 
     # --- 割り込み（キーを押した・呼ばれた） ---
     def interrupt(self) -> None:
         """話している途中・考えている途中でも、すぐ止めて次を聞く"""
+        self.cut.set()
         self.speaker.stop()
         self.brain.cancel()
         self.hub.set(state="listening", text="聞いています…")
@@ -72,9 +88,14 @@ class Assistant:
             return None
         print(f"🎙 {question}")
 
+        self.cut.clear()
         if RESET_RE.match(question):
             self.session_id, self.awaiting_confirm = None, False
+            self.deck, self.pos = [], -1
+            self.hub.set(scene=None)
             return self._local(question, "新しい話にしますね")
+        if not self.awaiting_confirm and self._navigate(question):
+            return "（画面の操作）"
 
         confirmed = False
         prompt = question
@@ -88,14 +109,27 @@ class Assistant:
 
         fresh = self.clock() - self.last < self.cfg["conversation_timeout"]
         session = self.session_id if (fresh or confirmed) else None
-        self.hub.set(state="thinking", question=question, text="考えています…")
+        self.hub.set(state="thinking", question=question, text="考えています…", scene=None)
+        new_deck: list[scenes.Scene] = []
 
         def on_text(t: str) -> None:
+            if self.cut.is_set():
+                return
+            if scenes.has_directive(t):
+                parsed = scenes.parse(t)
+                start = len(new_deck)
+                for sc in parsed:
+                    self._prepare(sc)
+                new_deck.extend(parsed)
+                self.deck = new_deck
+                self._play(start)
+                return
             print(f"🔊 {t}")
             self.hub.set(state="speaking", text=t)
             self.speaker.say(t)
 
         res = self.brain.ask(prompt, on_text, session_id=session, confirmed=confirmed)
+        res.answer = scenes.strip_directives(res.answer) or res.answer
         if res.session_id:
             self.session_id = res.session_id
         self.last = self.clock()
@@ -104,8 +138,80 @@ class Assistant:
         self.awaiting_confirm = (not res.is_error) and is_confirm(res.answer)
         self.log(self.cfg, question, res.answer)
         self.speaker.wait(timeout=120)
-        self.hub.set(state="confirm" if self.awaiting_confirm else "idle", answer=res.answer, text="")
+        extra = {}
+        if self.awaiting_confirm:
+            extra["scene"] = {"kind": "confirm", "data": {"text": res.answer}, "index": 0, "total": 1}
+        self.hub.set(state="confirm" if self.awaiting_confirm else "idle", answer=res.answer, text="", **extra)
         return res.answer
+
+    # --- 画面を見せながら話す ---
+    def _prepare(self, sc: scenes.Scene) -> None:
+        """場面の絵を作る。ウェブの写真は時間がかかるので、あとから足す"""
+        if not sc.kind:
+            return
+        sc.visual = visuals.build(sc.kind, sc.params, self.cfg)
+        if sc.visual["kind"] == "web" and sc.params.get("url"):
+            sc.visual["data"]["shot_pending"] = True
+
+            def take(sc=sc):
+                name = self.shot(sc.params["url"], sc.params.get("quote", ""))
+                sc.visual["data"]["shot_pending"] = False
+                if name:
+                    sc.visual["data"]["shot"] = f"/shot/{name}"
+                    if 0 <= self.pos < len(self.deck) and self.deck[self.pos] is sc:
+                        self._show(self.pos)
+            threading.Thread(target=take, daemon=True).start()
+
+    def _show(self, i: int, state: str = "speaking") -> None:
+        sc = self.deck[i]
+        last_visual = next((self.deck[j].visual for j in range(i, -1, -1) if self.deck[j].visual), None)
+        scene = dict(last_visual, index=i, total=len(self.deck)) if last_visual else None
+        self.hub.set(state=state, text=sc.speech, scene=scene)
+
+    def _play(self, start: int, stop: int | None = None) -> None:
+        """start の場面から順に、話し終えるのを待ちながら進める"""
+        end = len(self.deck) if stop is None else min(stop, len(self.deck))
+        for i in range(start, end):
+            if self.cut.is_set():
+                return
+            self.pos = i
+            self._show(i)
+            if self.deck[i].speech:
+                print(f"🔊 {self.deck[i].speech}")
+                self.speaker.say(self.deck[i].speech)
+                self.speaker.wait(timeout=120)
+        if self.deck and not self.cut.is_set():
+            self.pos = end - 1
+
+    def _navigate(self, question: str) -> bool:
+        q = question.strip()
+        if not self.deck and not self.hub.state.get("scene"):
+            return False
+        if BIG_RE.match(q) or SMALL_RE.match(q):
+            self.hub.set(zoom=bool(BIG_RE.match(q)))
+            return True
+        if CLOSE_RE.match(q):
+            self.deck, self.pos = [], -1
+            self.hub.set(state="idle", scene=None, text="")
+            return True
+        if not self.deck:
+            return False
+        if NEXT_RE.match(q):
+            target = self.pos + 1
+            if target >= len(self.deck):
+                self.speaker.say("これで最後です")
+                self.hub.set(state="idle")
+                return True
+        elif BACK_RE.match(q):
+            target = max(0, self.pos - 1)
+        elif AGAIN_RE.match(q):
+            target = 0
+        else:
+            return False
+        self._play(target, None if AGAIN_RE.match(q) else target + 1)
+        self.speaker.wait(timeout=120)
+        self.hub.set(state="idle", text="")
+        return True
 
     def _local(self, question: str, answer: str) -> str:
         """Claude を呼ばずに返す返事"""

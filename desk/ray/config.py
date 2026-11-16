@@ -33,6 +33,8 @@ DEFAULTS: dict = {
         "max_sec": 15,
     },
     "ui": {"enabled": True, "port": 8765, "open_browser": True},
+    # 天気の場所（open-meteo）
+    "weather": {"place": "横浜", "latitude": 35.44, "longitude": 139.64},
     "log": {"enabled": True, "push": True},
 }
 

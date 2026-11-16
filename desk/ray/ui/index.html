@@ -6,7 +6,8 @@
 <title>Ray</title>
 <style>
   :root {
-    --bg: #0b0d12; --fg: #e8eaf0; --muted: #8a90a2;
+    --bg: #0b0d12; --panel: #141821; --panel2: #1b2030; --line: #283044;
+    --fg: #e8eaf0; --muted: #8a90a2; --hi: #ffd54a; --good: #2fd38a; --bad: #ff5a5a;
     --idle: #4a5cff; --listening: #00d1b2; --thinking: #ffae00; --speaking: #ff5ab4; --confirm: #ff5a3c;
   }
   * { box-sizing: border-box; }
@@ -14,15 +15,15 @@
   body {
     background: var(--bg); color: var(--fg);
     font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px;
-    padding: 16px; overflow: hidden;
+    overflow: hidden;
   }
+  /* ---- 円だけの画面（ふだん） ---- */
+  #home { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; padding: 16px; }
   .orb {
     --c: var(--idle);
-    width: min(46vmin, 320px); aspect-ratio: 1; border-radius: 50%;
+    width: min(46vmin, 320px); aspect-ratio: 1; border-radius: 50%; flex: none;
     background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--c) 85%, white) 0%, var(--c) 35%, color-mix(in srgb, var(--c) 30%, transparent) 62%, transparent 72%);
     box-shadow: 0 0 60px 10px color-mix(in srgb, var(--c) 45%, transparent);
-    transition: box-shadow .4s;
     animation: breathe 4s ease-in-out infinite;
   }
   .orb[data-state="listening"] { --c: var(--listening); animation: pulse 0.9s ease-in-out infinite; }
@@ -34,34 +35,288 @@
   @keyframes talk { to { transform: scale(1.05, .96); } }
   @keyframes spin { to { transform: rotate(360deg) scale(.98); filter: hue-rotate(30deg); } }
   .label { font-size: 15px; letter-spacing: .2em; color: var(--muted); }
-  .text { max-width: 720px; text-align: center; font-size: 20px; line-height: 1.6; min-height: 3.2em; }
+  .text { max-width: 760px; text-align: center; font-size: 20px; line-height: 1.6; min-height: 3.2em; }
   .q { max-width: 720px; text-align: center; color: var(--muted); font-size: 14px; min-height: 1.4em; }
-  @media (prefers-reduced-motion: reduce) { .orb { animation: none !important; } }
+
+  /* ---- 絵を出しているとき ---- */
+  body.stage-on #home { display: none; }
+  #stagewrap { display: none; height: 100%; flex-direction: column; }
+  body.stage-on #stagewrap { display: flex; }
+  header.bar { display: flex; align-items: center; gap: 16px; padding: 14px 22px; border-bottom: 1px solid var(--line); }
+  header.bar .orb { width: 52px; box-shadow: 0 0 22px 4px color-mix(in srgb, var(--c) 45%, transparent); }
+  header.bar .say { flex: 1; font-size: 19px; line-height: 1.5; }
+  header.bar .meta { color: var(--muted); font-size: 13px; text-align: right; white-space: nowrap; }
+  #stage { flex: 1; overflow: auto; padding: 22px 28px 28px; animation: fade .35s ease; }
+  body.zoom header.bar { display: none; }
+  body.zoom #stage { font-size: 125%; }
+  @keyframes fade { from { opacity: 0; transform: translateY(8px); } }
+  h2.ttl { margin: 0 0 14px; font-size: 1.35em; font-weight: 600; }
+  .muted { color: var(--muted); }
+  .err { color: var(--bad); padding: 20px; background: var(--panel); border-radius: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+  .hl { outline: 2px solid var(--hi); background: color-mix(in srgb, var(--hi) 16%, var(--panel)) !important; border-radius: 8px; }
+  .pill { display: inline-block; font-size: .78em; padding: 1px 8px; border-radius: 999px; background: var(--panel2); color: var(--muted); margin-left: 6px; }
+  .pill.bad { background: color-mix(in srgb, var(--bad) 25%, transparent); color: #ffb3b3; }
+  .pill.ms { background: color-mix(in srgb, var(--hi) 22%, transparent); color: var(--hi); }
+
+  /* カレンダー */
+  .week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+  .day { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px; min-height: 180px; }
+  .day.today { border-color: var(--idle); }
+  .day .dh { font-size: .85em; color: var(--muted); margin-bottom: 8px; }
+  .day .dh b { color: var(--fg); font-size: 1.2em; margin-right: 4px; }
+  .ev { font-size: .86em; padding: 5px 7px; border-radius: 7px; background: var(--panel2); margin-bottom: 6px; line-height: 1.35; }
+  .ev .t { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 4px; }
+  .ev.due { border-left: 3px solid var(--thinking); }
+  .ev.milestone { border-left: 3px solid var(--hi); }
+  .ev.done { opacity: .45; text-decoration: line-through; }
+  .month { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .month .day { min-height: 96px; padding: 6px; }
+  .month .ev { font-size: .75em; padding: 3px 5px; margin-bottom: 3px; }
+  .tl { display: grid; grid-template-columns: 70px 1fr; gap: 8px 14px; max-width: 760px; }
+  .tl .t { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; padding-top: 10px; }
+
+  /* ノート・コード */
+  .lines { font-family: ui-monospace, Menlo, monospace; font-size: .92em; line-height: 1.6; }
+  .lines div { padding: 1px 10px; white-space: pre-wrap; display: grid; grid-template-columns: 3em 1fr; gap: 10px; }
+  .lines .n { color: var(--muted); text-align: right; }
+  .diff .add { background: rgba(47, 211, 138, .14); }
+  .diff .del { background: rgba(255, 90, 90, .14); }
+  .diff .hunk { color: var(--idle); }
+
+  /* リスト */
+  .list { display: grid; gap: 8px; max-width: 860px; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--panel); border-radius: 10px; }
+  .row .box { width: 18px; height: 18px; border: 2px solid var(--muted); border-radius: 5px; flex: none; }
+  .row.done { opacity: .45; } .row.done .box { background: var(--good); border-color: var(--good); }
+  .row .due { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .row.overdue .due { color: var(--bad); font-weight: 600; }
+  .bars { display: grid; gap: 10px; max-width: 860px; margin-top: 18px; }
+  .bar2 { display: grid; grid-template-columns: 9em 1fr 7em; gap: 12px; align-items: center; }
+  .track { height: 12px; background: var(--panel2); border-radius: 6px; overflow: hidden; }
+  .fill { height: 100%; background: var(--idle); border-radius: 6px; }
+
+  /* 習慣 */
+  .grid { display: grid; gap: 6px; align-items: center; }
+  .cell { aspect-ratio: 1; border-radius: 6px; background: var(--panel2); min-width: 18px; }
+  .cell.done { background: var(--c); } .cell.miss { background: color-mix(in srgb, var(--bad) 35%, var(--panel2)); }
+  .cell.off { background: transparent; border: 1px dashed var(--line); }
+
+  /* 天気 */
+  .hours { display: flex; gap: 10px; overflow-x: auto; }
+  .hour { background: var(--panel); border-radius: 12px; padding: 12px; min-width: 92px; text-align: center; }
+  .hour .tp { font-size: 1.6em; font-weight: 600; margin: 4px 0; }
+  .big { font-size: 2.6em; font-weight: 700; }
+
+  /* ウェブ */
+  .web { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+  .web img { width: 100%; border-radius: 12px; border: 1px solid var(--line); }
+  .shotwait { aspect-ratio: 16/11; border-radius: 12px; background: var(--panel); display: grid; place-items: center; color: var(--muted); }
+  blockquote { margin: 12px 0 0; padding: 12px 16px; border-left: 4px solid var(--hi); background: var(--panel2); border-radius: 0 10px 10px 0; line-height: 1.7; }
+  a { color: #9fb1ff; }
+
+  /* 表・手順・計算 */
+  table { border-collapse: collapse; width: 100%; max-width: 1000px; }
+  th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  .steps { display: grid; gap: 10px; max-width: 860px; counter-reset: s; }
+  .step { display: flex; gap: 14px; padding: 14px 16px; background: var(--panel); border-radius: 12px; opacity: .55; }
+  .step.now { opacity: 1; outline: 2px solid var(--hi); }
+  .step.past { opacity: .8; }
+  .step .no { width: 30px; height: 30px; border-radius: 50%; background: var(--panel2); display: grid; place-items: center; flex: none; }
+  .calc { font-family: ui-monospace, Menlo, monospace; font-size: 1.3em; line-height: 2; }
+  .calc .res { font-size: 1.6em; color: var(--hi); }
+  .confirm { max-width: 720px; margin: 8vh auto 0; text-align: center; border: 2px solid var(--confirm); }
+  .confirm .yn { display: flex; justify-content: center; gap: 18px; margin-top: 20px; font-size: 1.2em; }
+  .confirm .yn span { padding: 8px 24px; border-radius: 999px; background: var(--panel2); }
+  svg text { fill: var(--muted); font-size: 12px; }
+  @media (prefers-reduced-motion: reduce) { .orb, #stage { animation: none !important; } }
 </style>
 </head>
 <body>
-  <div class="orb" id="orb" data-state="idle"></div>
-  <div class="label" id="label">待機中</div>
-  <div class="text" id="text"></div>
-  <div class="q" id="q"></div>
+  <div id="home">
+    <div class="orb" id="orb" data-state="idle"></div>
+    <div class="label" id="label">待機中</div>
+    <div class="text" id="text"></div>
+    <div class="q" id="q"></div>
+  </div>
+  <div id="stagewrap">
+    <header class="bar">
+      <div class="orb" id="orb2" data-state="idle"></div>
+      <div class="say" id="say"></div>
+      <div class="meta"><div id="label2"></div><div id="page"></div></div>
+    </header>
+    <main id="stage"></main>
+  </div>
 <script>
-  const LABELS = { idle: "待機中", listening: "聞いています", thinking: "考えています", speaking: "話しています", confirm: "確認待ち（はい／いいえ）" };
-  const orb = document.getElementById("orb");
-  const label = document.getElementById("label");
-  const text = document.getElementById("text");
-  const q = document.getElementById("q");
-  function connect() {
-    const es = new EventSource("/events");
-    es.onmessage = (e) => {
-      const s = JSON.parse(e.data);
-      orb.dataset.state = s.state;
-      label.textContent = LABELS[s.state] || s.state;
-      text.textContent = s.text || s.answer || "";
-      q.textContent = s.question ? "🎙 " + s.question : "";
-    };
-    es.onerror = () => { label.textContent = "つながっていません（Rayが止まっています）"; orb.dataset.state = "idle"; };
+const LABELS = { idle: "待機中", listening: "聞いています", thinking: "考えています", speaking: "話しています", confirm: "確認待ち（はい／いいえ）" };
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const yen = (n) => "¥" + Number(n || 0).toLocaleString("ja-JP");
+const md = (d) => { const [, m, dd] = d.split("-"); return `${+m}/${+dd}`; };
+const hits = (hl, ...keys) => (hl || []).some((h) => keys.some((k) => k && String(k).includes(String(h))) || keys.some((k) => k && String(h).includes(String(k)) && String(k).length > 3));
+
+/* ---------- 種類ごとの描き方 ---------- */
+const R = {};
+
+R.calendar = (d) => {
+  // 光らせる：「日付 時刻」がぴったり同じ予定か、名前が合う予定。日付だけなら、その日の枠
+  const hl = (d.highlight || []).map(String);
+  const evOn = (e) => hl.some((h) => (e.start && h === `${e.date} ${e.start}`) || (h.length >= 2 && !/^\d{4}-\d{2}-\d{2}/.test(h) && e.title.includes(h)));
+  const dayOn = (date) => hl.includes(date);
+  const evHtml = (e) => {
+    const tag = e.kind === "due" ? '<span class="pill">期限</span>' : e.kind === "milestone" ? '<span class="pill ms">節目</span>' : "";
+    return `<div class="ev ${e.kind} ${e.done ? "done" : ""} ${evOn(e) ? "hl" : ""}"><span class="t">${esc(e.start)}${e.end ? "–" + esc(e.end) : ""}</span>${esc(e.title)}${tag}</div>`;
+  };
+  const by = {}; d.events.forEach((e) => (by[e.date] ||= []).push(e));
+  if (d.range === "day") {
+    const evs = by[d.start] || [];
+    return `<h2 class="ttl">${esc(d.title)}</h2>` + (evs.length
+      ? `<div class="tl">${evs.map((e) => `<div class="t">${esc(e.start || "終日")}</div>${evHtml(e)}`).join("")}</div>`
+      : `<p class="muted">予定はありません</p>`);
   }
-  connect();
+  let pad = "";
+  if (d.range === "month") { const first = new Date(d.start + "T00:00"); pad = '<div></div>'.repeat((first.getDay() + 6) % 7); }
+  const head = d.range === "month" ? "月火水木金土日".split("").map((w) => `<div class="muted" style="text-align:center">${w}</div>`).join("") : "";
+  return `<h2 class="ttl">${esc(d.title)}</h2><div class="week ${d.range === "month" ? "month" : ""}">${head}${pad}${d.days.map((x) =>
+    `<div class="day ${x.date === d.today ? "today" : ""} ${dayOn(x.date) ? "hl" : ""}">
+      <div class="dh"><b>${+x.date.slice(8)}</b>${x.dow}</div>${(by[x.date] || []).map(evHtml).join("")}</div>`).join("")}</div>`;
+};
+
+R.note = (d) => `<h2 class="ttl">${esc(d.title)} <span class="pill">${esc(d.path)}</span></h2>
+  <div class="card lines">${d.lines.map((l) => `<div class="${l.hit ? "hl" : ""}"><span class="n">${l.n}</span><span>${esc(l.text) || "&nbsp;"}</span></div>`).join("")}</div>`;
+
+R.todos = (d) => `<h2 class="ttl">${esc(d.title)}</h2>
+  <div class="list">${d.items.length ? d.items.map((i) => `<div class="row ${i.done ? "done" : ""} ${i.overdue ? "overdue" : ""} ${hits(d.highlight, i.title) ? "hl" : ""}">
+    <span class="box"></span><span>${esc(i.title)}${i.milestone ? '<span class="pill ms">節目</span>' : ""}${i.project ? `<span class="pill">${esc(i.project)}</span>` : ""}</span>
+    <span class="due">${i.due ? (i.overdue ? "期限切れ " : "") + md(i.due) : ""}</span></div>`).join("") : '<p class="muted">やることはありません</p>'}</div>
+  ${d.projects.length ? `<div class="bars">${d.projects.map((p) => `<div class="bar2"><span>${esc(p.name)}</span>
+    <div class="track"><div class="fill" style="width:${p.total ? (100 * p.done / p.total) : 0}%"></div></div><span class="muted">${p.done} / ${p.total}</span></div>`).join("")}</div>` : ""}`;
+
+R.habits = (d) => {
+  const n = d.days.length;
+  const cols = `12em repeat(${n}, minmax(18px, ${n > 10 ? "1fr" : "54px"})) 7em`;
+  return `<h2 class="ttl">${esc(d.title)}</h2><div class="grid" style="grid-template-columns:${cols}">
+    <div></div>${d.days.map((x) => `<div class="muted" style="text-align:center;font-size:.75em" title="${esc(x.rest)}">${n > 10 ? +x.date.slice(8) : md(x.date) + "<br>" + x.dow}</div>`).join("")}<div></div>
+    ${d.habits.map((h) => `<div class="${hits(d.highlight, h.name) ? "hl" : ""}" style="padding:4px 6px">${esc(h.name)}</div>
+      ${h.cells.map((c) => `<div class="cell ${c.state}" style="--c:${esc(h.color)}"></div>`).join("")}
+      <div class="muted" style="font-size:.85em">${h.done}/${h.due}・${h.streak}日連続</div>`).join("")}</div>`;
+};
+
+function lineChart(series, opt = {}) {
+  const W = 900, H = 300, P = 44;
+  const pts = series.flatMap((s) => s.points);
+  if (!pts.length) return '<p class="muted">記録がありません</p>';
+  const dates = [...new Set(pts.map((p) => p.date))].sort();
+  const t0 = new Date(opt.start || dates[0]).getTime(), t1 = new Date(opt.end || dates[dates.length - 1]).getTime() || t0 + 1;
+  let lo = opt.min ?? Math.min(...pts.map((p) => p.value), ...(opt.target != null ? [opt.target] : []));
+  let hi = opt.max ?? Math.max(...pts.map((p) => p.value), ...(opt.target != null ? [opt.target] : []));
+  if (hi === lo) { hi += 1; lo -= 1; }
+  const x = (d) => P + (W - 2 * P) * ((new Date(d).getTime() - t0) / Math.max(1, t1 - t0));
+  const y = (v) => H - P - (H - 2 * P) * ((v - lo) / (hi - lo));
+  const colors = ["#ff5ab4", "#00d1b2", "#ffae00", "#9fb1ff"];
+  let g = `<line x1="${P}" y1="${H - P}" x2="${W - P}" y2="${H - P}" stroke="#283044"/>`;
+  [lo, (lo + hi) / 2, hi].forEach((v) => (g += `<text x="${P - 8}" y="${y(v) + 4}" text-anchor="end">${Math.round(v * 10) / 10}</text>`));
+  [opt.start || dates[0], opt.end || dates[dates.length - 1]].forEach((d, i) => (g += `<text x="${x(d)}" y="${H - P + 18}" text-anchor="${i ? "end" : "start"}">${md(d)}</text>`));
+  if (opt.target != null) g += `<line x1="${P}" x2="${W - P}" y1="${y(opt.target)}" y2="${y(opt.target)}" stroke="#ffd54a" stroke-dasharray="6 6"/><text x="${W - P}" y="${y(opt.target) - 6}" text-anchor="end" style="fill:#ffd54a">目標 ${opt.target}</text>`;
+  series.forEach((s, i) => {
+    const c = colors[i % colors.length];
+    g += `<polyline fill="none" stroke="${c}" stroke-width="2.5" points="${s.points.map((p) => `${x(p.date)},${y(p.value)}`).join(" ")}"/>`;
+    s.points.forEach((p) => (g += `<circle cx="${x(p.date)}" cy="${y(p.value)}" r="3.5" fill="${c}"/>`));
+    const last = s.points[s.points.length - 1];
+    if (last) g += `<text x="${x(last.date) - 6}" y="${y(last.value) - 12}" text-anchor="end" style="fill:${c};font-size:15px">${last.value}${s.unit || ""}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:1000px">${g}</svg>`;
+}
+
+R.body = (d) => `<h2 class="ttl">${esc(d.title)} <span class="pill">${md(d.start)} 〜 ${md(d.end)}</span></h2>` +
+  d.series.map((s) => `<div class="card" style="margin-bottom:14px"><div style="margin-bottom:6px">${esc(s.name)}
+    ${s.change != null ? `<span class="pill ${s.change > 0 && s.name === "体重" ? "bad" : ""}">${s.change > 0 ? "+" : ""}${s.change}${esc(s.unit)}</span>` : ""}</div>
+    ${lineChart([s], { start: d.start, end: d.end, target: s.target, min: s.min, max: s.max })}</div>`).join("");
+
+R.kakei = (d) => {
+  const max = Math.max(1, ...d.categories.map((c) => c.amount));
+  return `<h2 class="ttl">${esc(d.title)}</h2>
+  <div style="display:flex;gap:28px;flex-wrap:wrap;margin-bottom:18px">
+    <div><div class="muted">支出</div><div class="big">${yen(d.expense)}</div></div>
+    <div><div class="muted">収入</div><div class="big" style="color:var(--good)">${yen(d.income)}</div></div>
+    ${d.budget ? `<div><div class="muted">予算の残り（あと${d.days_left}日）</div><div class="big" style="color:${d.remaining < 0 ? "var(--bad)" : "var(--hi)"}">${yen(d.remaining)}</div></div>` : ""}
+  </div>
+  <div class="bars">${d.categories.map((c) => `<div class="bar2 ${hits(d.highlight, c.name) ? "hl" : ""}"><span>${esc(c.name)}</span>
+    <div class="track"><div class="fill" style="width:${100 * c.amount / max}%"></div></div><span>${yen(c.amount)}</span></div>`).join("")}</div>`;
+};
+
+R.workout = (d) => `<h2 class="ttl">${esc(d.title)}</h2>
+  ${d.menu && d.menu.length ? `<div class="card" style="margin-bottom:14px"><div class="muted">今日のメニュー</div><div class="list" style="margin-top:8px">${d.menu.map((m) => `<div class="row ${hits(d.highlight, m) ? "hl" : ""}"><span class="box"></span>${esc(m)}</div>`).join("")}</div></div>` : ""}
+  ${d.series.map((s) => `<div class="card ${hits(d.highlight, s.name) ? "hl" : ""}" style="margin-bottom:14px"><div>${esc(s.name)} <span class="pill">いちばん重い重さ（kg）</span></div>
+    ${lineChart([{ name: s.name, unit: "kg", points: s.points.map((p) => ({ date: p.date, value: p.weight })) }])}</div>`).join("")}`;
+
+R.weather = (d) => d.error ? `<div class="err">${esc(d.error)}</div>` : `<h2 class="ttl">${esc(d.title)}</h2>
+  <div style="display:flex;gap:28px;margin-bottom:18px"><div><div class="muted">最高 / 最低</div><div class="big">${d.max}° <span class="muted" style="font-size:.6em">/ ${d.min}°</span></div></div>
+  <div><div class="muted">雨の確率</div><div class="big" style="color:${d.pop >= 50 ? "#7fb2ff" : "inherit"}">${d.pop}%</div></div></div>
+  <div class="hours">${d.hours.map((h) => `<div class="hour"><div class="muted">${esc(h.time)}</div><div class="tp">${h.temp}°</div><div>${esc(h.sky)}</div><div class="muted">☂ ${h.pop}%</div></div>`).join("")}</div>`;
+
+R.diff = (d) => `<h2 class="ttl">${esc(d.title)} <span class="pill">${esc(d.head)}</span></h2>
+  ${d.files.map((f) => `<div class="card" style="margin-bottom:12px"><div style="margin-bottom:8px">${esc(f.path)}</div>
+    <div class="lines diff">${f.lines.map((l) => `<div class="${l.kind}"><span class="n"></span><span>${esc(l.text)}</span></div>`).join("")}</div></div>`).join("") || '<p class="muted">変更はありません</p>'}
+  ${d.status.length ? `<div class="card lines muted">${d.status.map((s) => `<div><span class="n"></span><span>${esc(s)}</span></div>`).join("")}</div>` : ""}`;
+
+R.web = (d) => `<div class="web" style="${d.shot || d.shot_pending ? "" : "grid-template-columns:minmax(0,760px)"}">${d.shot ? `<div><img src="${esc(d.shot)}" alt=""></div>` : d.shot_pending ? '<div class="shotwait">ページの写真を撮っています…</div>' : ""}
+  <div class="card"><div class="muted">${esc(d.site || (d.url || "").replace(/^https?:\/\/([^/]+).*/, "$1"))}</div>
+    <h2 class="ttl" style="margin-top:6px">${esc(d.title)}</h2>${d.quote ? `<blockquote>${esc(d.quote)}</blockquote>` : ""}
+    ${d.url ? `<p><a href="${esc(d.url)}" target="_blank" rel="noopener">ページを開く</a></p>` : ""}</div></div>`;
+
+R.sources = (d) => `<h2 class="ttl">${esc(d.title || "使ったページ")}</h2><div class="list">${(d.items || []).map((s, i) =>
+  `<a class="row" href="${esc(s.url)}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit"><span class="pill">${i + 1}</span><span>${esc(s.title)}</span><span class="due">${esc(s.site || "")}</span></a>`).join("")}</div>`;
+
+R.table = (d) => `<h2 class="ttl">${esc(d.title)}</h2><div class="card"><table><tr>${(d.columns || []).map((c) => `<th>${esc(c)}</th>`).join("")}</tr>
+  ${(d.rows || []).map((r, i) => `<tr class="${(d.highlight || []).includes(i) ? "hl" : ""}">${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table></div>`;
+
+R.steps = (d) => `<h2 class="ttl">${esc(d.title)}</h2><div class="steps">${(d.steps || []).map((s, i) =>
+  `<div class="step ${i === (d.current ?? -1) ? "now" : i < (d.current ?? -1) ? "past" : ""}"><span class="no">${i + 1}</span><span>${esc(s)}</span></div>`).join("")}</div>`;
+
+R.calc = (d) => `<h2 class="ttl">${esc(d.title || "計算")}</h2><div class="card calc"><div>${esc(d.expr)}</div>
+  ${(d.steps || []).map((s) => `<div class="muted">= ${esc(s)}</div>`).join("")}<div class="res">= ${esc(d.result)}</div></div>`;
+
+R.confirm = (d) => `<div class="card confirm"><div class="muted">確認</div><h2 class="ttl" style="margin-top:10px">${esc(d.action || d.text)}</h2>
+  <div class="yn"><span>はい</span><span>いいえ</span></div></div>`;
+
+R.text = (d) => d.error ? `<div class="err">${esc(d.error)}</div>` : `<div class="card">${esc(d.body || d.text || "")}</div>`;
+
+function render(scene) {
+  const d = scene.data || {};
+  if (d.error && scene.kind !== "weather") return `<div class="err">${esc(d.error)}</div>`;
+  try { return (R[scene.kind] || R.text)(d); }
+  catch (e) { return `<div class="err">画面を描けませんでした（${esc(e.message)}）</div>`; }
+}
+
+/* ---------- 状態を受け取る ---------- */
+let lastScene = "";
+function apply(s) {
+  for (const id of ["orb", "orb2"]) $(id).dataset.state = s.state;
+  const lab = LABELS[s.state] || s.state;
+  $("label").textContent = lab; $("label2").textContent = lab;
+  $("text").textContent = s.text || s.answer || "";
+  $("q").textContent = s.question ? "🎙 " + s.question : "";
+  $("say").textContent = s.text || "";
+  document.body.classList.toggle("zoom", !!s.zoom);
+  const on = !!s.scene;
+  document.body.classList.toggle("stage-on", on);
+  if (on) {
+    $("page").textContent = s.scene.total > 1 ? `${s.scene.index + 1} / ${s.scene.total}` : "";
+    const key = JSON.stringify([s.scene.kind, s.scene.data]);
+    if (key !== lastScene) { $("stage").innerHTML = render(s.scene); $("stage").style.animation = "none"; $("stage").offsetHeight; $("stage").style.animation = ""; lastScene = key; }
+    const h = $("stage").querySelector(".hl"); if (h) h.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  } else lastScene = "";
+}
+window.__apply = apply;
+function connect() {
+  if (!window.EventSource || location.protocol === "file:") return;
+  const es = new EventSource("/events");
+  es.onmessage = (e) => apply(JSON.parse(e.data));
+  es.onerror = () => { $("label").textContent = "つながっていません（Rayが止まっています）"; $("orb").dataset.state = "idle"; };
+}
+connect();
 </script>
 </body>
 </html>
