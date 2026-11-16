@@ -90,3 +90,41 @@ export async function createFile(env, path, text, message) {
   }
   throw new Error("保存に失敗しました（同じ名前のファイルが多すぎます）");
 }
+
+function contentsUrl(env, path) {
+  const r = repo(env);
+  return `${API}/repos/${r.owner}/${r.name}/contents/${path.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+function fromBase64(b64) {
+  const bin = atob(b64.replace(/\s+/g, ""));
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+/** ファイルを読む。なければ null。上書きに使う sha も返す */
+export async function readText(env, path) {
+  const r = repo(env);
+  const res = await fetch(`${contentsUrl(env, path)}?ref=${encodeURIComponent(r.branch)}`, {
+    headers: headers(env, { Accept: "application/vnd.github+json" }),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`${path} の読み取りに失敗しました（${res.status}）`);
+  const data = await res.json();
+  return { text: fromBase64(data.content || ""), sha: data.sha };
+}
+
+/** ファイルを書く（sha があれば上書き）。ぶつかったら false を返す */
+export async function writeText(env, path, text, message, sha) {
+  const r = repo(env);
+  const body = { message, content: toBase64(text), branch: r.branch };
+  if (sha) body.sha = sha;
+  const res = await fetch(contentsUrl(env, path), {
+    method: "PUT",
+    headers: headers(env, { Accept: "application/vnd.github+json", "Content-Type": "application/json" }),
+    body: JSON.stringify(body),
+  });
+  if (res.ok) return true;
+  if (res.status === 409 || res.status === 422) return false;
+  throw new Error(`保存に失敗しました（${res.status}）`);
+}
