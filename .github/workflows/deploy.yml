@@ -49,11 +49,20 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          secrets: |
-            GITHUB_TOKEN
-            OPENAI_API_KEY
-            ACCESS_KEY
+      # GitHub の Secrets に入っているものだけ Cloudflare に送る（入っていないものは Cloudflare 側の値をそのまま使う）
+      - name: 秘密の値を Cloudflare に送る
+        if: env.CLOUDFLARE_API_TOKEN != ''
         env:
-          GITHUB_TOKEN: ${{ secrets.CMD_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ACCESS_KEY: ${{ secrets.ACCESS_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          S_GITHUB_TOKEN: ${{ secrets.CMD_TOKEN }}
+          S_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          S_ACCESS_KEY: ${{ secrets.ACCESS_KEY }}
+        run: |
+          for name in GITHUB_TOKEN OPENAI_API_KEY ACCESS_KEY; do
+            var="S_$name"
+            if [ -n "${!var}" ]; then
+              printf '%s' "${!var}" | npx --yes wrangler@3 secret put "$name"
+            else
+              echo "::notice::$name は GitHub の Secrets にないので、Cloudflare に入っている値をそのまま使います"
+            fi
+          done
