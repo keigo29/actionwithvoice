@@ -21,7 +21,7 @@ timeout = 180
 
 [wake]
 enabled = false
-model = ""                   # openWakeWord のモデル（例 ~/models/zero.onnx）
+model = ""                   # openWakeWord のモデル（例 ~/models/ray.onnx）
 threshold = 0.5
 silence_sec = 1.2
 max_sec = 15
@@ -30,6 +30,11 @@ max_sec = 15
 enabled = true
 port = 8765
 open_browser = true
+
+[weather]
+place = "横浜"               # 画面に出す天気の場所
+latitude = 35.44
+longitude = 139.64
 
 [log]
 enabled = true               # Cmd の Data/voice/ に Q&A を置く

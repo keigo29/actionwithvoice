@@ -1,8 +1,8 @@
-"""起動：python -m zero（desk フォルダで）
+"""起動：python -m ray（desk フォルダで）
 
-  python -m zero            # 常駐（キーを押している間に話す／ウェイクワード）
-  python -m zero --text 今日のデイリー読んで   # マイクなしで1回だけ試す
-  python -m zero --check    # 準備ができているか確かめる
+  python -m ray            # 常駐（キーを押している間に話す／ウェイクワード）
+  python -m ray --text 今日のデイリー読んで   # マイクなしで1回だけ試す
+  python -m ray --check    # 準備ができているか確かめる
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def check(cfg: dict) -> bool:
 
     line(bool(shutil.which(cfg["claude"]["bin"])), "Claude Code（claude）", "npm i -g @anthropic-ai/claude-code して claude でログイン")
     if os.environ.get("ANTHROPIC_API_KEY"):
-        print("⚠️  ANTHROPIC_API_KEY が設定されています。ゼロは子プロセスに渡さないので Pro の枠で動きます")
+        print("⚠️  ANTHROPIC_API_KEY が設定されています。Rayは子プロセスに渡さないので Pro の枠で動きます")
     line(bool(shutil.which("say")), "読み上げ（say）", "macOS で動かしてください")
     cmd = Path(cfg["cmd_dir"])
     line((cmd / ".git").exists(), f"Cmd のクローン（{cmd}）", "config.toml の cmd_dir を直す")
@@ -99,7 +99,7 @@ def run(cfg: dict, use_ui: bool) -> None:
             assistant.submit_audio(recorder.stop())
 
     print(f"「{cfg['hotkey']}」キーを押している間に話してください（終わるときは Ctrl+C）")
-    speaker.say("ゼロです。どうぞ")
+    speaker.say("レイです。どうぞ")
     with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
         try:
             listener.join()
@@ -108,7 +108,7 @@ def run(cfg: dict, use_ui: bool) -> None:
 
 
 def main(argv=None) -> int:
-    p = argparse.ArgumentParser(prog="zero", description="デスク常駐型の音声アシスタント")
+    p = argparse.ArgumentParser(prog="ray", description="デスク常駐型の音声アシスタント")
     p.add_argument("--config", help="設定ファイル（既定：desk/config.toml）")
     p.add_argument("--text", nargs="+", help="マイクを使わずに、この文で1回だけ聞く")
     p.add_argument("--check", action="store_true", help="準備ができているか確かめる")

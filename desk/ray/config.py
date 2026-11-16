@@ -25,7 +25,7 @@ DEFAULTS: dict = {
     "claude": {"bin": "claude", "model": "", "timeout": 180},
     "wake": {
         "enabled": False,
-        # openWakeWord のモデル（.onnx / .tflite）。「ゼロ」は自分で学習させたものを指定
+        # openWakeWord のモデル（.onnx / .tflite）。「レイ」は自分で学習させたものを指定
         "model": "",
         "threshold": 0.5,
         # 呼ばれたあと、この秒数黙ったら聞き取りを終える
@@ -33,6 +33,8 @@ DEFAULTS: dict = {
         "max_sec": 15,
     },
     "ui": {"enabled": True, "port": 8765, "open_browser": True},
+    # 天気の場所（open-meteo）
+    "weather": {"place": "横浜", "latitude": 35.44, "longitude": 139.64},
     "log": {"enabled": True, "push": True},
 }
 

@@ -11,12 +11,37 @@ from dataclasses import dataclass, field
 from typing import Callable, Iterable
 
 VOICE_PROMPT = """\
-あなたは、机の前にいる持ち主の音声アシスタント「ゼロ」です。返事はそのまま読み上げられます。
+あなたは、机の前にいる持ち主の音声アシスタント「Ray（レイ）」です。返事はそのまま読み上げられます。
 - 日本語で、原則3文以内。箇条書き・表・Markdown の記号・URL・コードは使わない。ファイル名や数字は聞き取りやすく言う
 - 作業ディレクトリは持ち主の Cmd リポジトリです。CLAUDE.md と README.md の決まりを守る
 - Cmd のファイルを変えたら、git pull --rebase してからコミットし、git push する
 - 許可されていない操作（削除、強制的な push、Cmd 以外のリポジトリへの push、許可の無いコマンドなど）が必要なときは、実行せずに、返事を「確認です。」で始め、何をするかを1文で言い、「よいですか？」で終える
 - 長い作業の前には、最初に「調べます」のような短い一言を先に言う
+"""
+
+SCREEN_PROMPT = """持ち主の前には画面があります。予定・数字・一覧・出典・手順など、見せたほうが分かりやすい返事のときは、
+返事を「場面」に区切り、場面ごとに1行目へ画面の指示を書いてください。指示の行は読み上げられません。
+書き方：行の頭に「@画面 種類 {JSON}」（JSON は1行で）。その下の行が、その場面で話す文（1〜2文）。場面は多くて6つ。
+指示の行の JSON の中だけは、URL や記号を書いてかまいません。話す文のほうは、これまでどおり記号や URL を使わないこと。
+ふつうの会話やひとことの返事では、指示を書かないこと。
+
+種類と JSON（日付は YYYY-MM-DD。highlight には話している場面で光らせるものを入れる）：
+- calendar {"range":"day|week|month","date":"YYYY-MM-DD","highlight":["YYYY-MM-DD HH:MM" か 予定名]} 予定。中身は Ray が Cmd から集める
+- note {"path":"Notes/○○.md","quote":"根拠にした文の一部"} ノートを元に答えるとき
+- todos {"project":"プロジェクト名（任意）","due_within":7,"include_done":false,"highlight":["やることの一部"]} やること
+- habits {"range":"week|month","highlight":["習慣の名前"]} 毎日確認
+- body {"metric":"weight|mood|both","days":30,"target":68} 体重・気分
+- kakei {"month":"YYYY-MM","budget":0} 家計
+- workout {"exercise":"種目（任意）","days":90,"menu":["今日のメニュー（任意）"]} 筋トレ
+- weather {"date":"YYYY-MM-DD"} 天気
+- diff {"ref":"HEAD か worktree"} ファイルを変えたあと、何を変えたか
+- web {"url":"…","title":"…","site":"…","quote":"根拠にした文をそのまま"} ウェブを元に答えるとき。1ページ1場面
+- sources {"items":[{"title":"…","url":"…","site":"…"}]} 使ったページの一覧（最後の場面に）
+- table {"title":"…","columns":["…"],"rows":[["…"]],"highlight":[行番号]} 比較
+- steps {"title":"…","steps":["…"],"current":0} 手順（current は今話している番号、0 から）
+- calc {"expr":"式","steps":["途中の式"],"result":"答え"} 計算
+- diagram {"title":"…","code":"Mermaid の記法（改行は \\n）","highlight":["ノードの id"]} 仕組み・流れ・関係・順番・つながりを説明するとき。flowchart / sequenceDiagram / mindmap / timeline / gantt など。ノードは短い日本語で。場面ごとに同じ図で highlight を変えると、話している所を光らせられる
+「おはよう」「朝のまとめ」と言われたら、weather → calendar(day) → todos(due_within 3) → habits の順に場面を作る。
 """
 
 CONFIRM_PREFIX = "確認です"
@@ -29,6 +54,7 @@ SAFE_TOOLS = [
     "Bash(git push)", "Bash(git push origin main)",
     "Bash(ls:*)", "Bash(du:*)", "Bash(wc:*)", "Bash(date:*)", "Bash(df:*)",
     "Bash(npm test:*)", "Bash(python3 -m unittest:*)", "Bash(python3 -m pytest:*)", "Bash(pytest:*)",
+    "WebSearch", "WebFetch",
 ]
 # 「はい」と言われたら足すもの（ほかのコマンド全部）
 CONFIRMED_TOOLS = ["Bash"]
@@ -62,7 +88,7 @@ def build_command(cfg: dict, session_id: str | None = None, confirmed: bool = Fa
     cmd = [
         c["bin"], "-p",
         "--output-format", "stream-json", "--verbose",
-        "--append-system-prompt", VOICE_PROMPT,
+        "--append-system-prompt", VOICE_PROMPT + (SCREEN_PROMPT if cfg.get("ui", {}).get("enabled", True) else ""),
         "--permission-mode", "acceptEdits",
         "--allowedTools", *(SAFE_TOOLS + (CONFIRMED_TOOLS if confirmed else [])),
         "--disallowedTools", *ALWAYS_DENY,

@@ -8,12 +8,14 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from . import shots
+
 PAGE = Path(__file__).resolve().parent / "ui" / "index.html"
 
 
 class StateHub:
     def __init__(self):
-        self.state = {"state": "idle", "text": "", "question": "", "answer": ""}
+        self.state = {"state": "idle", "text": "", "question": "", "answer": "", "scene": None, "zoom": False}
         self.listeners: list[queue.Queue] = []
         self.lock = threading.Lock()
 
@@ -68,6 +70,18 @@ def serve(hub: StateHub, port: int) -> ThreadingHTTPServer:
                     pass
                 finally:
                     hub.unsubscribe(q)
+            elif self.path.startswith("/shot/"):
+                name = self.path[len("/shot/"):]
+                f = shots.SHOT_DIR / name
+                if "/" in name or ".." in name or not name.endswith(".png") or not f.exists():
+                    self.send_error(404)
+                    return
+                body = f.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
             else:
                 self.send_error(404)
 
