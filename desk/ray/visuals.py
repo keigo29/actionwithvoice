@@ -491,12 +491,13 @@ def diff(root: Path, params: dict, run=subprocess.run) -> dict:
 # ---------------------------------------------------------------- 入口
 
 # Claude が書いた中身をそのまま使うもの
-PASSTHROUGH = {"web", "sources", "table", "steps", "calc", "confirm", "text"}
+PASSTHROUGH = {"web", "sources", "table", "steps", "calc", "confirm", "text", "diagram"}
 KINDS = {"calendar", "note", "todos", "habits", "body", "kakei", "workout", "weather", "diff"} | PASSTHROUGH
 ALIASES = {"予定": "calendar", "カレンダー": "calendar", "ノート": "note", "やること": "todos", "タスク": "todos",
            "習慣": "habits", "毎日確認": "habits", "体重": "body", "気分": "body", "家計": "kakei",
            "筋トレ": "workout", "天気": "weather", "変更": "diff", "ウェブ": "web", "出典": "sources",
-           "表": "table", "比較": "table", "手順": "steps", "計算": "calc", "確認": "confirm"}
+           "表": "table", "比較": "table", "手順": "steps", "計算": "calc", "確認": "confirm",
+           "mermaid": "diagram", "マーメイド": "diagram", "図": "diagram", "フロー": "diagram"}
 
 
 def build(kind: str, params: dict, cfg: dict) -> dict:

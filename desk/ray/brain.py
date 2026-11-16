@@ -40,6 +40,7 @@ SCREEN_PROMPT = """持ち主の前には画面があります。予定・数字�
 - table {"title":"…","columns":["…"],"rows":[["…"]],"highlight":[行番号]} 比較
 - steps {"title":"…","steps":["…"],"current":0} 手順（current は今話している番号、0 から）
 - calc {"expr":"式","steps":["途中の式"],"result":"答え"} 計算
+- diagram {"title":"…","code":"Mermaid の記法（改行は \\n）","highlight":["ノードの id"]} 仕組み・流れ・関係・順番・つながりを説明するとき。flowchart / sequenceDiagram / mindmap / timeline / gantt など。ノードは短い日本語で。場面ごとに同じ図で highlight を変えると、話している所を光らせられる
 「おはよう」「朝のまとめ」と言われたら、weather → calendar(day) → todos(due_within 3) → habits の順に場面を作る。
 """
 

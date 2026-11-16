@@ -88,6 +88,7 @@ class ScenesTest(unittest.TestCase):
         off["ui"]["enabled"] = False
         self.assertNotIn("@画面", " ".join(brain.build_command(off)))
         self.assertIn("WebSearch", on)
+        self.assertIn("diagram", " ".join(on))
 
 
 class VisualsTest(unittest.TestCase):
@@ -191,6 +192,9 @@ class VisualsTest(unittest.TestCase):
     def test_passthrough_and_unknown(self):
         self.assertEqual(self.b("table", columns=["a"], rows=[["1"]])["data"]["rows"], [["1"]])
         self.assertEqual(self.b("比較", columns=[])["kind"], "table")
+        dg = self.b("mermaid", code="flowchart LR\n A --> B", highlight=["A"])
+        self.assertEqual((dg["kind"], dg["data"]["highlight"]), ("diagram", ["A"]))
+        self.assertEqual(self.b("図", code="x")["kind"], "diagram")
         self.assertIn("error", self.b("ufo")["data"])
 
 

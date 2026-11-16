@@ -130,6 +130,12 @@
   .confirm .yn { display: flex; justify-content: center; gap: 18px; margin-top: 20px; font-size: 1.2em; }
   .confirm .yn span { padding: 8px 24px; border-radius: 999px; background: var(--panel2); }
   svg text { fill: var(--muted); font-size: 12px; }
+  .diagram { display: flex; justify-content: center; }
+  .diagram svg { width: 100%; max-width: 1100px !important; height: auto; max-height: calc(100vh - 190px); }
+  .diagram svg text { fill: inherit; font-size: inherit; }
+  .diagram .hl-node rect, .diagram .hl-node polygon, .diagram .hl-node circle, .diagram .hl-node path.basic {
+    stroke: var(--hi) !important; stroke-width: 3px !important; fill: color-mix(in srgb, var(--hi) 22%, #1b2030) !important; }
+  .diagram pre { white-space: pre-wrap; color: var(--muted); }
   @media (prefers-reduced-motion: reduce) { .orb, #stage { animation: none !important; } }
 </style>
 </head>
@@ -280,6 +286,46 @@ R.calc = (d) => `<h2 class="ttl">${esc(d.title || "計算")}</h2><div class="car
 
 R.confirm = (d) => `<div class="card confirm"><div class="muted">確認</div><h2 class="ttl" style="margin-top:10px">${esc(d.action || d.text)}</h2>
   <div class="yn"><span>はい</span><span>いいえ</span></div></div>`;
+
+/* 図（Mermaid）。ライブラリは最初に使うときだけ読む */
+const MERMAID_URL = "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js";
+let mermaidReady = null;
+function loadMermaid() {
+  if (!mermaidReady) mermaidReady = new Promise((ok, ng) => {
+    const sc = document.createElement("script");
+    sc.src = MERMAID_URL; sc.onload = () => {
+      window.mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict",
+        fontFamily: '-apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif',
+        themeVariables: { background: "#0b0d12", primaryColor: "#1b2030", primaryBorderColor: "#4a5cff",
+          primaryTextColor: "#e8eaf0", lineColor: "#8a90a2", fontSize: "18px" } });
+      ok(window.mermaid);
+    };
+    sc.onerror = () => { mermaidReady = null; ng(new Error("図のライブラリを読めませんでした")); };
+    document.head.appendChild(sc);
+  });
+  return mermaidReady;
+}
+let diagramSeq = 0;
+R.diagram = (d) => {
+  const id = "dg" + (++diagramSeq);
+  queueMicrotask(async () => {
+    const box = document.getElementById(id); if (!box) return;
+    try {
+      const m = await loadMermaid();
+      const { svg } = await m.render(id + "svg", String(d.code || "").replace(/\\n/g, "\n"));
+      if (!document.getElementById(id)) return;
+      box.innerHTML = svg;
+      for (const h of d.highlight || []) {
+        box.querySelectorAll(`g.node[id^="flowchart-${CSS.escape(h)}-"], g[id="${CSS.escape(h)}"], g.node[data-id="${CSS.escape(h)}"]`)
+          .forEach((g) => g.classList.add("hl-node"));
+      }
+    } catch (e) {
+      document.getElementById("d" + id + "svg")?.remove();  // Mermaid が残すエラーの絵を消す
+      box.innerHTML = `<div style="width:100%"><div class="err">図を描けませんでした（${esc(e.message || e)}）</div><pre>${esc(d.code)}</pre></div>`;
+    }
+  });
+  return `<h2 class="ttl">${esc(d.title || "")}</h2><div class="diagram card" id="${id}"><span class="muted">図を描いています…</span></div>`;
+};
 
 R.text = (d) => d.error ? `<div class="err">${esc(d.error)}</div>` : `<div class="card">${esc(d.body || d.text || "")}</div>`;
 
