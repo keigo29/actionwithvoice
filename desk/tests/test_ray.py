@@ -5,10 +5,10 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from zero import brain, cmdlog, config, speech, stt
-from zero.app import CONFIRMED_PROMPT, Assistant
-from zero.audio import RATE, SilenceDetector, duration, rms, save_wav
-from zero.ui import StateHub
+from ray import brain, cmdlog, config, speech, stt
+from ray.app import CONFIRMED_PROMPT, Assistant
+from ray.audio import RATE, SilenceDetector, duration, rms, save_wav
+from ray.ui import StateHub
 
 JST = timezone(timedelta(hours=9))
 

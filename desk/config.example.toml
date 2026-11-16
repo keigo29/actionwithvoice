@@ -21,7 +21,7 @@ timeout = 180
 
 [wake]
 enabled = false
-model = ""                   # openWakeWord のモデル（例 ~/models/zero.onnx）
+model = ""                   # openWakeWord のモデル（例 ~/models/ray.onnx）
 threshold = 0.5
 silence_sec = 1.2
 max_sec = 15

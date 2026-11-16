@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ゼロ</title>
+<title>Ray</title>
 <style>
   :root {
     --bg: #0b0d12; --fg: #e8eaf0; --muted: #8a90a2;
@@ -59,7 +59,7 @@
       text.textContent = s.text || s.answer || "";
       q.textContent = s.question ? "🎙 " + s.question : "";
     };
-    es.onerror = () => { label.textContent = "つながっていません（ゼロが止まっています）"; orb.dataset.state = "idle"; };
+    es.onerror = () => { label.textContent = "つながっていません（Rayが止まっています）"; orb.dataset.state = "idle"; };
   }
   connect();
 </script>
