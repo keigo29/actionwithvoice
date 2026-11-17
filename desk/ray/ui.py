@@ -11,6 +11,8 @@ from pathlib import Path
 from . import shots
 
 PAGE = Path(__file__).resolve().parent / "ui" / "index.html"
+FONTS = Path(__file__).resolve().parent / "ui" / "fonts"
+FONT_TYPES = {".otf": "font/otf", ".ttf": "font/ttf", ".woff": "font/woff", ".woff2": "font/woff2"}
 
 
 class StateHub:
@@ -70,6 +72,20 @@ def serve(hub: StateHub, port: int) -> ThreadingHTTPServer:
                     pass
                 finally:
                     hub.unsubscribe(q)
+            elif self.path.startswith("/fonts/"):
+                name = self.path[len("/fonts/"):]
+                f = FONTS / name
+                kind = FONT_TYPES.get(Path(name).suffix.lower())
+                if "/" in name or ".." in name or not kind or not f.exists():
+                    self.send_error(404)
+                    return
+                body = f.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", kind)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "max-age=86400")
+                self.end_headers()
+                self.wfile.write(body)
             elif self.path.startswith("/shot/"):
                 name = self.path[len("/shot/"):]
                 f = shots.SHOT_DIR / name

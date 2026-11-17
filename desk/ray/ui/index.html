@@ -4,18 +4,32 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ray</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap">
 <style>
+  /* CP Mono：Mac に入っているものを使う。無ければ desk/ray/ui/fonts/ に置いたファイルを使う */
+  @font-face { font-family: "CP Mono"; font-weight: 400; font-display: swap;
+    src: local("CPMono_v07 Plain"), local("CPMono_v07-Plain"), local("CPMono_v07"), url("/fonts/CPMono_v07_Plain.otf") format("opentype"); }
+  @font-face { font-family: "CP Mono"; font-weight: 300; font-display: swap;
+    src: local("CPMono_v07 Light"), local("CPMono_v07-Light"), url("/fonts/CPMono_v07_Light.otf") format("opentype"); }
+  @font-face { font-family: "CP Mono"; font-weight: 700; font-display: swap;
+    src: local("CPMono_v07 Bold"), local("CPMono_v07-Bold"), url("/fonts/CPMono_v07_Bold.otf") format("opentype"); }
+  @font-face { font-family: "CP Mono"; font-weight: 900; font-display: swap;
+    src: local("CPMono_v07 Black"), local("CPMono_v07-Black"), local("CPMono_v07 Bold"), url("/fonts/CPMono_v07_Black.otf") format("opentype"), url("/fonts/CPMono_v07_Bold.otf") format("opentype"); }
   :root {
     --bg: #0b0d12; --panel: #141821; --panel2: #1b2030; --line: #283044;
     --fg: #e8eaf0; --muted: #8a90a2; --hi: #ffd54a; --good: #2fd38a; --bad: #ff5a5a;
     --idle: #ff2d55; --listening: #ff4d6d; --thinking: #ff2d55; --speaking: #ff5c8a; --confirm: #ffae00;
     --neon: #ff2d55; --neon2: #ff7a95; --ring: rgba(255, 235, 240, .78);
+    --font: "CP Mono", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif;
+    --font-mono: "CP Mono", "Zen Kaku Gothic New", ui-monospace, Menlo, monospace;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
     background: var(--bg); color: var(--fg);
-    font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    font-family: var(--font);
     overflow: hidden;
   }
   /* ---- 円だけの画面（ふだん） ---- */
@@ -30,8 +44,8 @@
   .hud .neon { filter: drop-shadow(0 0 calc(10px * var(--glow) + 2px) var(--neon)) drop-shadow(0 0 calc(26px * var(--glow)) var(--neon)); }
   .hud .core { transform-origin: 50% 50%; transform-box: view-box; }
   .hud .name { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
-  .hud .name b { font: 900 italic calc(var(--size) * .17)/1 "Avenir Next Condensed", "Arial Narrow", "Hiragino Sans", sans-serif;
-    letter-spacing: .06em; color: #fff; transform: skewX(-8deg);
+  .hud .name b { font: 700 calc(var(--size) * .15)/1 var(--font-mono);
+    letter-spacing: .14em; margin-right: -.14em; color: #fff; transform: skewX(-8deg);
     text-shadow: 0 0 6px var(--neon), 0 0 18px var(--neon), 2px 0 0 rgba(255, 45, 85, .9), -2px 0 0 rgba(120, 220, 255, .55);
     animation: glitch 6s steps(1) infinite; }
   .hud .beam { position: absolute; left: -30%; right: -30%; top: 50%; height: 2px;
@@ -119,7 +133,7 @@
   .tl .t { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; padding-top: 10px; }
 
   /* ノート・コード */
-  .lines { font-family: ui-monospace, Menlo, monospace; font-size: .92em; line-height: 1.6; }
+  .lines { font-family: var(--font-mono); font-size: .92em; line-height: 1.6; }
   .lines div { padding: 1px 10px; white-space: pre-wrap; display: grid; grid-template-columns: 3em 1fr; gap: 10px; }
   .lines .n { color: var(--muted); text-align: right; }
   .diff .add { background: rgba(47, 211, 138, .14); }
@@ -166,7 +180,7 @@
   .step.now { opacity: 1; outline: 2px solid var(--hi); }
   .step.past { opacity: .8; }
   .step .no { width: 30px; height: 30px; border-radius: 50%; background: var(--panel2); display: grid; place-items: center; flex: none; }
-  .calc { font-family: ui-monospace, Menlo, monospace; font-size: 1.3em; line-height: 2; }
+  .calc { font-family: var(--font-mono); font-size: 1.3em; line-height: 2; }
   .calc .res { font-size: 1.6em; color: var(--hi); }
   .confirm { max-width: 720px; margin: 8vh auto 0; text-align: center; border: 2px solid var(--confirm); }
   .confirm .yn { display: flex; justify-content: center; gap: 18px; margin-top: 20px; font-size: 1.2em; }
@@ -337,7 +351,7 @@ function loadMermaid() {
     const sc = document.createElement("script");
     sc.src = MERMAID_URL; sc.onload = () => {
       window.mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict",
-        fontFamily: '-apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif',
+        fontFamily: '"CP Mono", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif',
         themeVariables: { background: "#0b0d12", primaryColor: "#1b2030", primaryBorderColor: "#4a5cff",
           primaryTextColor: "#e8eaf0", lineColor: "#8a90a2", fontSize: "18px" } });
       ok(window.mermaid);

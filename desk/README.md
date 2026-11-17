@@ -87,6 +87,12 @@ python -m ray --text 今日のデイリー読んで     # マイクなしで1回
 
 しくみ：Claude Code の返事の中の `@画面 種類 {JSON}` の行で場面を区切り、その下の文を読み上げます（指示の行は読み上げない）。グラフやカレンダーの中身は Ray が Cmd から集めるので、Claude が大きなデータを書く必要はありません。
 
+## フォント
+
+- 英数字と RAY の文字は **CP Mono（CPMono_v07）**、日本語は **Zen Kaku Gothic New**
+- Zen Kaku Gothic New は Google Fonts から読みます（ネットにつながっていれば準備はいらない）
+- CP Mono は Mac に入れたものを使います。入れていないときは `desk/ray/ui/fonts/` に `CPMono_v07_Plain.otf`・`CPMono_v07_Bold.otf` などを置いてください（Git には入れない）
+
 ## ウェイクワード（任意）
 
 声で呼ぶには、openWakeWord のモデルが必要です。「レイ」のような日本語の呼び名は用意されていないので、自分で作ります。
