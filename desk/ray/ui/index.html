@@ -4,18 +4,32 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ray</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap">
 <style>
+  /* CP Mono：Mac に入っているものを使う。無ければ desk/ray/ui/fonts/ に置いたファイルを使う */
+  @font-face { font-family: "CP Mono"; font-weight: 400; font-display: swap;
+    src: local("CPMono_v07 Plain"), local("CPMono_v07-Plain"), local("CPMono_v07"), url("/fonts/CPMono_v07_Plain.otf") format("opentype"); }
+  @font-face { font-family: "CP Mono"; font-weight: 300; font-display: swap;
+    src: local("CPMono_v07 Light"), local("CPMono_v07-Light"), url("/fonts/CPMono_v07_Light.otf") format("opentype"); }
+  @font-face { font-family: "CP Mono"; font-weight: 700; font-display: swap;
+    src: local("CPMono_v07 Bold"), local("CPMono_v07-Bold"), url("/fonts/CPMono_v07_Bold.otf") format("opentype"); }
+  @font-face { font-family: "CP Mono"; font-weight: 900; font-display: swap;
+    src: local("CPMono_v07 Black"), local("CPMono_v07-Black"), local("CPMono_v07 Bold"), url("/fonts/CPMono_v07_Black.otf") format("opentype"), url("/fonts/CPMono_v07_Bold.otf") format("opentype"); }
   :root {
     --bg: #0b0d12; --panel: #141821; --panel2: #1b2030; --line: #283044;
     --fg: #e8eaf0; --muted: #8a90a2; --hi: #ffd54a; --good: #2fd38a; --bad: #ff5a5a;
     --idle: #ff2d55; --listening: #ff4d6d; --thinking: #ff2d55; --speaking: #ff5c8a; --confirm: #ffae00;
     --neon: #ff2d55; --neon2: #ff7a95; --ring: rgba(255, 235, 240, .78);
+    --font: "CP Mono", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif;
+    --font-mono: "CP Mono", "Zen Kaku Gothic New", ui-monospace, Menlo, monospace;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
     background: var(--bg); color: var(--fg);
-    font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    font-family: var(--font);
     overflow: hidden;
   }
   /* ---- 円だけの画面（ふだん） ---- */
@@ -30,11 +44,11 @@
   .hud .neon { filter: drop-shadow(0 0 calc(10px * var(--glow) + 2px) var(--neon)) drop-shadow(0 0 calc(26px * var(--glow)) var(--neon)); }
   .hud .core { transform-origin: 50% 50%; transform-box: view-box; }
   .hud .name { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
-  .hud .name b { font: 900 italic calc(var(--size) * .17)/1 "Avenir Next Condensed", "Arial Narrow", "Hiragino Sans", sans-serif;
-    letter-spacing: .06em; color: #fff; transform: skewX(-8deg);
+  .hud .name b { font: 700 calc(var(--size) * .15)/1 var(--font-mono);
+    letter-spacing: .14em; margin-right: -.14em; color: #fff; transform: skewX(-8deg);
     text-shadow: 0 0 6px var(--neon), 0 0 18px var(--neon), 2px 0 0 rgba(255, 45, 85, .9), -2px 0 0 rgba(120, 220, 255, .55);
     animation: glitch 6s steps(1) infinite; }
-  .hud .beam { position: absolute; left: -30%; right: -30%; top: 50%; height: 2px; transform: rotate(-24deg) scaleX(0);
+  .hud .beam { position: absolute; left: -30%; right: -30%; top: 50%; height: 2px;
     background: linear-gradient(90deg, transparent, var(--neon), #fff, var(--neon), transparent); box-shadow: 0 0 14px var(--neon); opacity: 0; }
   .hud .halo { position: absolute; inset: 18%; border-radius: 50%;
     background: radial-gradient(circle, rgba(255, 45, 85, calc(.18 * var(--glow))) 0%, transparent 70%); }
@@ -52,15 +66,23 @@
   .hud[data-state="thinking"] .seg { animation-duration: calc(4s / var(--speed)); }
   .hud[data-state="listening"] .halo, .hud[data-state="speaking"] .halo { animation: pulse 1.4s ease-in-out infinite; }
 
-  /* 起動のアニメーション：傾いたリングが飛んできて、1つにまとまる */
-  .hud.intro .layer { animation: assemble 1.5s cubic-bezier(.2, .8, .2, 1) both; animation-delay: var(--d, 0s); }
-  .hud.intro .name b { animation: nameIn 1.9s ease-out both; }
-  .hud.intro .beam { animation: beam 1.3s ease-out .15s both; }
-  @keyframes assemble {
-    0%   { opacity: 0; transform: perspective(700px) translate(var(--fx, -18%), var(--fy, 10%)) rotateX(var(--rx, 68deg)) rotateY(var(--ry, -40deg)) rotateZ(var(--rz, 30deg)) scale(var(--fs, .55)); }
-    35%  { opacity: 1; }
-    100% { opacity: 1; transform: perspective(700px) translate(0, 0) rotateX(0) rotateY(0) rotateZ(0) scale(1); }
-  }
+  /* 待機中は横から見た形（傾いた輪がずれて重なる）。呼ばれたら正面に向き直って1つにまとまる */
+  .hud .layer { transform: none; opacity: 1;
+    transition: transform 1.25s cubic-bezier(.2, .85, .25, 1) var(--d, 0s), opacity .6s ease var(--d, 0s); }
+  .hud[data-state="idle"] .layer {
+    transform: perspective(760px) translate(var(--ix, 0), var(--iy, 0)) rotateZ(var(--iz, 0deg)) rotateY(var(--iy3, 0deg)) rotateX(var(--ix3, 0deg)) scale(var(--is, 1));
+    transition-duration: 1.6s; transition-delay: calc(.35s - var(--d, 0s)); }
+  .hud[data-state="idle"] .layer.side-dim { opacity: .55; }
+  .hud .name b { transition: opacity .5s ease .75s, filter .5s ease .75s; }
+  .hud[data-state="idle"] .name b { opacity: 0; filter: blur(8px); transition-delay: 0s; animation: none; }
+  .hud .beam { transition: opacity .5s ease, transform 1.2s cubic-bezier(.2, .85, .25, 1); opacity: 0; transform: rotate(-38deg) scaleX(.2); }
+  .hud[data-state="idle"] .beam { opacity: .75; transform: rotate(-38deg) scaleX(.62); }
+  .hud[data-state="idle"] .halo { opacity: .5; }
+  .hud .halo { transition: opacity .8s ease; }
+  /* 横向きのあいだも、ゆっくり漂わせる */
+  .hud[data-state="idle"] .drift { animation: drift 7s ease-in-out infinite alternate; }
+  @keyframes drift { to { transform: translate(1.5%, -1.5%) rotate(4deg); } }
+  .hud .drift { position: absolute; inset: 0; transform-origin: 50% 50%; }
   @keyframes beam { 0% { opacity: 0; transform: rotate(-24deg) scaleX(0); } 30% { opacity: 1; transform: rotate(-24deg) scaleX(1); } 100% { opacity: 0; transform: rotate(-12deg) scaleX(.2); } }
   @keyframes nameIn { 0%, 55% { opacity: 0; transform: skewX(-8deg) scale(1.4); filter: blur(6px); } 80% { opacity: 1; filter: blur(0); } 86% { transform: skewX(-8deg) translateX(3px); } 92% { transform: skewX(-8deg) translateX(-2px); } 100% { opacity: 1; transform: skewX(-8deg) scale(1); } }
   @keyframes glitch { 0%, 91%, 100% { clip-path: none; transform: skewX(-8deg); } 92% { clip-path: inset(10% 0 55% 0); transform: skewX(-8deg) translateX(4px); } 94% { clip-path: inset(60% 0 8% 0); transform: skewX(-8deg) translateX(-4px); } 96% { clip-path: none; transform: skewX(-8deg) translateX(1px); } }
@@ -111,7 +133,7 @@
   .tl .t { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; padding-top: 10px; }
 
   /* ノート・コード */
-  .lines { font-family: ui-monospace, Menlo, monospace; font-size: .92em; line-height: 1.6; }
+  .lines { font-family: var(--font-mono); font-size: .92em; line-height: 1.6; }
   .lines div { padding: 1px 10px; white-space: pre-wrap; display: grid; grid-template-columns: 3em 1fr; gap: 10px; }
   .lines .n { color: var(--muted); text-align: right; }
   .diff .add { background: rgba(47, 211, 138, .14); }
@@ -158,7 +180,7 @@
   .step.now { opacity: 1; outline: 2px solid var(--hi); }
   .step.past { opacity: .8; }
   .step .no { width: 30px; height: 30px; border-radius: 50%; background: var(--panel2); display: grid; place-items: center; flex: none; }
-  .calc { font-family: ui-monospace, Menlo, monospace; font-size: 1.3em; line-height: 2; }
+  .calc { font-family: var(--font-mono); font-size: 1.3em; line-height: 2; }
   .calc .res { font-size: 1.6em; color: var(--hi); }
   .confirm { max-width: 720px; margin: 8vh auto 0; text-align: center; border: 2px solid var(--confirm); }
   .confirm .yn { display: flex; justify-content: center; gap: 18px; margin-top: 20px; font-size: 1.2em; }
@@ -329,7 +351,7 @@ function loadMermaid() {
     const sc = document.createElement("script");
     sc.src = MERMAID_URL; sc.onload = () => {
       window.mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict",
-        fontFamily: '-apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif',
+        fontFamily: '"CP Mono", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif',
         themeVariables: { background: "#0b0d12", primaryColor: "#1b2030", primaryBorderColor: "#4a5cff",
           primaryTextColor: "#e8eaf0", lineColor: "#8a90a2", fontSize: "18px" } });
       ok(window.mermaid);
@@ -393,42 +415,43 @@ function dots(n, rMin, rMax, seed) {
 }
 function buildHud(el, { name = true } = {}) {
   // 1枚ずつ別の層にして、起動のときにそれぞれ違う角度から飛んでくる
-  const L = (style, svg) => `<div class="layer" style="${style}">${svg}</div>`;
+  const L = (style, svg, cls = "") => `<div class="layer ${cls}" style="${style}">${svg}</div>`;
   el.innerHTML =
-    '<div class="halo"></div>' +
-    L("--d:.05s;--rx:72deg;--ry:-35deg;--rz:40deg;--fx:-22%;--fy:14%;--fs:.5",
+    '<div class="halo"></div><div class="drift">' +
+    // 目盛りの輪：右上に、少し傾いて
+    L("--d:.30s;--ix:17%;--iy:-15%;--iz:-20deg;--iy3:38deg;--ix3:18deg;--is:.6",
       ringSvg(`<g class="spin" style="--t:60s" stroke="var(--ring)" stroke-width="1.6" opacity=".6">${ticks(186, 192, 90, 5, 7)}</g>`)) +
-    L("--d:.15s;--rx:-60deg;--ry:50deg;--rz:-20deg;--fx:20%;--fy:-12%;--fs:.6",
+    // 点線＋赤い弧：左下で、ほぼ真横
+    L("--d:.12s;--ix:-14%;--iy:10%;--iz:-34deg;--iy3:74deg;--is:.62",
       ringSvg(`<g class="spin" style="--t:38s;--dir:reverse"><circle cx="200" cy="200" r="168" fill="none" stroke="var(--ring)" stroke-width="2" stroke-dasharray="2 9" opacity=".7"/>
         <circle cx="200" cy="200" r="168" fill="none" stroke="var(--neon)" stroke-width="5" stroke-dasharray="60 470 22 503" stroke-linecap="round"/></g>`)) +
-    L("--d:.25s;--rx:55deg;--ry:60deg;--rz:-60deg;--fx:-8%;--fy:-18%;--fs:.7",
+    // 赤い弧の輪：まん中より少し右
+    L("--d:.20s;--ix:4%;--iy:-2%;--iz:-32deg;--iy3:66deg;--ix3:-8deg;--is:.6",
       ringSvg(`<g class="spin seg" style="--t:22s"><circle cx="200" cy="200" r="148" fill="none" stroke="var(--neon2)" stroke-width="3" stroke-dasharray="140 38 46 26 90 60 70 460" opacity=".9"/></g>`, "neon")) +
-    L("--d:.35s;--rx:-75deg;--ry:-20deg;--rz:80deg;--fx:16%;--fy:16%;--fs:.65",
+    // 白い輪：左に、真横
+    L("--d:.06s;--ix:-20%;--iy:12%;--iz:-36deg;--iy3:72deg;--ix3:6deg;--is:.72",
       ringSvg(`<g class="spin" style="--t:16s;--dir:reverse"><circle cx="200" cy="200" r="128" fill="none" stroke="#fff" stroke-width="2.4" stroke-dasharray="230 18 120 18 160 260" opacity=".9"/>
         <circle cx="200" cy="200" r="120" fill="none" stroke="var(--ring)" stroke-width="1" opacity=".35"/></g>`)) +
-    L("--d:.45s;--rx:40deg;--ry:-70deg;--rz:10deg;--fx:-14%;--fy:-6%;--fs:.8",
+    // ネオンの輪：まん中、ななめ
+    L("--d:0s;--ix:-5%;--iy:4%;--iz:-30deg;--iy3:62deg;--is:.66",
       ringSvg(`<g class="core"><circle cx="200" cy="200" r="104" fill="rgba(11,13,18,.9)" stroke="var(--neon)" stroke-width="9"/>
         <circle cx="200" cy="200" r="92" fill="none" stroke="var(--neon2)" stroke-width="1.5" opacity=".7"/></g>`, "neon")) +
-    L("--d:.3s;--rx:0deg;--ry:0deg;--rz:-90deg;--fs:1.3",
+    // 浮かぶ点と十字：右上へ散らす
+    L("--d:.24s;--ix:10%;--iy:-8%;--iz:-20deg;--iy3:42deg;--ix3:24deg;--is:.8",
       ringSvg(`<g class="spin" style="--t:90s" fill="var(--ring)" opacity=".75">${dots(16, 196, 215, 7)}</g>
-        <g stroke="var(--ring)" stroke-width="1" opacity=".25"><line x1="200" y1="70" x2="200" y2="96"/><line x1="200" y1="304" x2="200" y2="330"/><line x1="70" y1="200" x2="96" y2="200"/><line x1="304" y1="200" x2="330" y2="200"/></g>`)) +
+        <g stroke="var(--ring)" stroke-width="1" opacity=".25"><line x1="200" y1="70" x2="200" y2="96"/><line x1="200" y1="304" x2="200" y2="330"/><line x1="70" y1="200" x2="96" y2="200"/><line x1="304" y1="200" x2="330" y2="200"/></g>`), "side-dim") +
+    '</div>' +
     '<div class="beam"></div>' +
     (name ? '<div class="name"><b>RAY</b></div>' : "");
 }
-function playIntro(el) {
-  el.classList.remove("intro"); void el.offsetWidth; el.classList.add("intro");
-  clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("intro"), 2200);
-}
 buildHud($("orb"));
 buildHud($("orb2"), { name: false });
-playIntro($("orb"));
 let prevState = "idle";
 
 /* ---------- 状態を受け取る ---------- */
 let lastScene = "";
 function apply(s) {
   for (const id of ["orb", "orb2"]) $(id).dataset.state = s.state;
-  if (prevState === "idle" && s.state === "listening") { playIntro($("orb")); playIntro($("orb2")); }
   prevState = s.state;
   const lab = LABELS[s.state] || s.state;
   $("label").textContent = lab; $("label2").textContent = lab;

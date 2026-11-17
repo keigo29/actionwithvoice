@@ -1,0 +1,4 @@
+# フォントのファイルを置く場所（Git には入れない）
+*
+!.gitignore
+!README.md
