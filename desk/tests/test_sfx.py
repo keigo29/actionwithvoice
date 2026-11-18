@@ -26,18 +26,25 @@ class RenderTest(unittest.TestCase):
                 self.assertLess(peak, 32767)     # 割れない
             self.assertGreater(lengths["boot"], 2.0)       # 起動はたっぷり
             self.assertLess(lengths["listen"], 0.6)        # 合図は短く
-            self.assertLess(lengths["open"], 0.8)
+            self.assertLess(lengths["open"], 1.0)  # 響きの尾を含めて1秒まで
 
 
 class SfxTest(unittest.TestCase):
     def test_plays_with_afplay(self):
         calls = []
-        s = sfx.Sfx({"sfx": {"enabled": True, "volume": 0.3}}, popen=lambda cmd, **kw: calls.append(cmd),
-                    which=lambda b: "/usr/bin/afplay")
-        self.assertTrue(s.ready.wait(10))
-        s.play("open")
-        self.assertEqual(calls[0][:3], ["afplay", "-v", "0.3"])
-        self.assertTrue(calls[0][3].endswith("open.wav"))
+        with tempfile.TemporaryDirectory() as d:
+            s = sfx.Sfx({"sfx": {"enabled": True, "volume": 0.3}}, popen=lambda cmd, **kw: calls.append(cmd),
+                        which=lambda b: "/usr/bin/afplay", folder=Path(d))
+            self.assertTrue(s.ready.wait(20))
+            s.play("open")
+            self.assertEqual(calls[0][:3], ["afplay", "-v", "0.3"])
+            self.assertTrue(calls[0][3].endswith("open.wav"))
+            # 2回目の起動では、作っておいた音をそのまま使う（作り直さない）
+            mtime = (Path(d) / "boot.wav").stat().st_mtime_ns
+            s2 = sfx.Sfx({"sfx": {"enabled": True}}, popen=lambda cmd, **kw: None,
+                         which=lambda b: "/usr/bin/afplay", folder=Path(d))
+            self.assertTrue(s2.ready.wait(5))
+            self.assertEqual((Path(d) / "boot.wav").stat().st_mtime_ns, mtime)
 
     def test_off_without_afplay_or_when_disabled(self):
         calls = []
