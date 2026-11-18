@@ -7,6 +7,8 @@ import re
 import subprocess
 import threading
 
+from . import guard
+
 _URL = re.compile(r"https?://\S+")
 _CODE = re.compile(r"```.*?```", re.S)
 _MD = re.compile(r"[*_`#>|]+")
@@ -23,7 +25,8 @@ def clean_for_speech(text: str) -> str:
     text = re.sub(r"\[\[([^\]]+)\]\]", r"\1", text)
     text = re.sub(r"\s*\n+\s*", "。", text)
     text = re.sub(r"。{2,}", "。", text)
-    return re.sub(r"[ \t]{2,}", " ", text).strip("。 ")
+    text = re.sub(r"[ \t]{2,}", " ", text).lstrip("。 ").rstrip()
+    return guard.to_japanese(text)
 
 
 class Speaker:

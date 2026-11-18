@@ -110,8 +110,8 @@ class BrainTest(unittest.TestCase):
 class SpeechTest(unittest.TestCase):
     def test_clean_for_speech(self):
         t = speech.clean_for_speech("## 結果\n- **Data** が 3MB\n- 詳しくは https://example.com\n[[音声連携]] を見て")
-        self.assertEqual(t, "結果。Data が 3MB。詳しくは リンク。音声連携 を見て")
-        self.assertEqual(speech.clean_for_speech("```py\nprint(1)\n```"), "（コードは画面で見てください）")
+        self.assertEqual(t, "結果。データが3メガバイト。詳しくはリンク。音声連携を見て")
+        self.assertEqual(speech.clean_for_speech("```py\nprint(1)\n```"), "コードは画面で見てください")
         self.assertEqual(speech.clean_for_speech("  \n "), "")
 
     def test_speaker_order_and_stop(self):
@@ -257,7 +257,7 @@ class AssistantTest(unittest.TestCase):
         self.now = [0.0]
         self.logs = []
         b, s, hub = FakeBrain(answers), FakeSpeaker(), StateHub()
-        a = Assistant(cfg(), b, s, hub, log=lambda c, q, ans: self.logs.append((q, ans)),
+        a = Assistant(cfg(), b, s, hub, log=lambda c, q, ans, **kw: self.logs.append((q, ans)),
                       clock=lambda: self.now[0])
         return a, b, s, hub
 
@@ -358,3 +358,38 @@ class VoicePromptTest(unittest.TestCase):
         sent = cmd[cmd.index("--append-system-prompt") + 1]
         self.assertIn("全部で3文まで", sent)
         self.assertIn("場面は多くて3つ", sent)
+
+
+class GuardTest(unittest.TestCase):
+    def test_to_japanese(self):
+        from ray.guard import to_japanese as j
+        self.assertEqual(j("中身はAnthropicのClaudeで、Cmdリポジトリのノートを読みます。"),
+                         "中身はアンソロピックのクロードで、コマンドリポジトリのノートを読みます。")
+        self.assertEqual(j("kakei.jsonという名前で、Money Forward MEから読みます。"),
+                         "ファイルという名前で、マネーフォワードから読みます。")
+        self.assertEqual(j("上半身Aは18:45から。体重70.5kg、目標まで3%です！"),
+                         "上半身エーは18時45分から。体重70.5キロ、目標まで3パーセントです。")
+        self.assertEqual(j("「エッチマス」は2026-11-20と11/20に。API は OK ?"),
+                         "エッチマスは2026年11月20日と11月20日に。エーピーアイはオッケー？")
+        self.assertEqual(j("家賃は¥85,000で、残りは 1〜2 万円 → https://x.example/a を見て"),
+                         "家賃は85,000円で、残りは1から2万円、リンクを見て")
+
+    def test_budget(self):
+        from ray.guard import Budget, join
+        b = Budget(3)
+        self.assertEqual(b.take("一。二？"), "一。二？")
+        self.assertEqual(b.take("三。四。"), "三。")
+        self.assertEqual(b.take("五。"), "")
+        self.assertEqual(b.rest, ["四。", "五。"])
+        self.assertTrue(b.overflow)
+        self.assertEqual(join(["調べます", "今週は2つ。", " 多めです。"]), "調べます。今週は2つ。多めです。")
+
+    def test_log_extra(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = cmdlog.write_qa(d, "q", "a", extra={"raw": "@画面 todos {}\na", "trimmed": True})
+            data = json.loads(p.read_text(encoding="utf-8"))
+            self.assertEqual((data["raw"], data["trimmed"]), ("@画面 todos {}\na", True))
+            p = cmdlog.write_qa(d, "q", "a", extra={"raw": "", "trimmed": False})
+            data = json.loads(p.read_text(encoding="utf-8"))
+            self.assertNotIn("raw", data)  # 同じなら残さない
+            self.assertNotIn("trimmed", data)

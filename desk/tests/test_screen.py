@@ -75,11 +75,11 @@ class ScenesTest(unittest.TestCase):
         self.assertEqual([s.kind for s in sc], [None, "calendar", "todos", "table"])
         self.assertEqual(sc[0].speech, "調べます")
         self.assertEqual(sc[1].params, {"range": "week"})
-        self.assertEqual(sc[1].speech, "今週は予定が2つ。 多めです。")
+        self.assertEqual(sc[1].speech, "今週は予定が2つ。多めです。")  # つなぎ目に空白を入れない
         self.assertEqual(sc[3].params, {})
         self.assertTrue(scenes.has_directive(text))
         self.assertFalse(scenes.has_directive("ふつうの返事です"))
-        self.assertEqual(scenes.strip_directives(text), "調べます 今週は予定が2つ。 多めです。 やることです。 表です。")
+        self.assertEqual(scenes.strip_directives(text), "調べます。今週は予定が2つ。多めです。やることです。表です。")
 
     def test_prompt_mentions_screen_only_with_ui(self):
         on = brain.build_command(cfg())
@@ -216,7 +216,7 @@ class PresentTest(unittest.TestCase):
             if kw.get("scene"):
                 shown.append((kw["scene"]["kind"], kw["scene"]["index"], kw.get("text")))
         hub.set = spy
-        a = Assistant(cfg(cmd_dir=self.tmp.name), b, s, hub, log=lambda *x: None)
+        a = Assistant(cfg(cmd_dir=self.tmp.name), b, s, hub, log=lambda *x, **kw: None)
         a.shot = lambda url, quote="": None
         return a, b, s, hub, shown
 
@@ -226,7 +226,7 @@ class PresentTest(unittest.TestCase):
         out = a.handle_text("今週の予定は？")
         self.assertEqual(s.said, ["今週は予定が3つです。", "今日は飲み会です。"])
         self.assertEqual([x[:2] for x in shown], [("calendar", 0), ("calendar", 1)])
-        self.assertEqual(out, "今週は予定が3つです。 今日は飲み会です。")  # ログには指示の行を入れない
+        self.assertEqual(out, "今週は予定が3つです。今日は飲み会です。")  # ログには指示の行を入れない
         self.assertEqual(hub.state["state"], "idle")
         self.assertIsNotNone(hub.state["scene"])  # 話し終えても絵は残す
 
@@ -279,3 +279,51 @@ class PresentTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GuardInPresentTest(PresentTest):
+    """読み上げ直前の守り：3文まで・日本語だけ・記号なし"""
+
+    def test_long_plain_answer_stops_at_three_and_continues(self):
+        ans = "一つ目です。二つ目です。三つ目です。四つ目です。五つ目です。"
+        a, b, s, hub, shown = self.make([ans])
+        a.handle_text("長い説明して")
+        self.assertEqual(s.said, ["一つ目です。二つ目です。三つ目です。", "続きを聞くときは、続きと言ってください。"])
+        a.handle_text("続き")
+        self.assertEqual(s.said[-1], "四つ目です。五つ目です。")
+        self.assertEqual(len(b.calls), 1)  # 続きは Claude を呼ばない
+        self.assertEqual(a.rest, [])  # 話し終えたので、次の「続き」はふつうの質問として Claude に聞く
+
+    def test_new_question_forgets_rest(self):
+        a, b, s, hub, shown = self.make(["一。二。三。四。", "はい。"])
+        a.handle_text("長く")
+        a.handle_text("別の質問")
+        self.assertEqual(a.rest, [])
+
+    def test_scenes_stop_at_three_sentences(self):
+        ans = ("@画面 calendar {\"range\":\"week\"}\n月曜です。火曜です。\n"
+               "@画面 calendar {\"range\":\"week\"}\n水曜です。木曜です。\n"
+               "@画面 calendar {\"range\":\"week\"}\n金曜です。")
+        a, b, s, hub, shown = self.make([ans])
+        a.handle_text("今週の予定")
+        self.assertEqual(s.said, ["月曜です。火曜です。", "水曜です。", "続きは、次と言ってください。"])
+        self.assertEqual(a.pos, 1)
+        a.handle_text("次")
+        self.assertEqual(s.said[-1], "金曜です。")
+
+    def test_english_and_symbols_are_spoken_in_japanese(self):
+        ans = "中身は「Claude」で、Cmdのkakei.jsonを読みます！上半身Aは18:45からです。"
+        a, b, s, hub, shown = self.make([ans])
+        a.handle_text("教えて")
+        self.assertEqual(s.said, ["中身はクロードで、コマンドのファイルを読みます。上半身エーは18時45分からです。"])
+
+    def test_log_keeps_raw_and_trimmed(self):
+        logs = []
+        ans = '@画面 todos {}\nやることは5つです。一つ目。二つ目。三つ目。'
+        a, b, s, hub, shown = self.make([ans])
+        a.log = lambda c, q, answer, extra=None: logs.append((answer, extra))
+        a.handle_text("やること")
+        answer, extra = logs[0]
+        self.assertEqual(answer, "やることは5つです。一つ目。二つ目。三つ目。")
+        self.assertEqual(extra["raw"], ans)  # 画面の指示の行も残す
+        self.assertTrue(extra["trimmed"])
