@@ -22,7 +22,36 @@ DEFAULTS: dict = {
         "language": "ja",
     },
     "tts": {"voice": "Kyoko", "rate": 210},
-    "claude": {"bin": "claude", "model": "", "timeout": 180},
+    # 返事の速さ優先：Sonnet・考える量は少なめ・MCP（Discord や Google Drive など）は読み込まない
+    # （Opus の既定より、ひとことで 4.4→2.3 秒、デイリーを読むので 9.2→4.7 秒に縮んだ）
+    "claude": {"bin": "claude", "model": "sonnet", "effort": "low", "mcp": False, "timeout": 180},
+    # 一次受けのローカル LLM（Ollama）。答えられないもの・止まっているときは Claude に回す
+    "local": {
+        "enabled": True,
+        "url": "http://localhost:11434",
+        "model": "qwen2.5:7b",
+        # 載せておく時間。-1 は Ray が動いている間ずっと（止めるときに外す）。"1h" などにすると、
+        # 外れたあとの次の読み込みに30秒ほどかかる（その間は Claude）
+        "keep_alive": -1,
+        "timeout": 8,           # この秒数、何も返ってこなければ Claude に回す
+        "temperature": 0.3,
+        "num_ctx": 4096,
+        "history": 6,           # 覚えておく直前のやり取りの数
+    },
+    # Gemini の無料枠（有料枠は使わない。鍵は課金を設定していないプロジェクトのもの）
+    # 鍵は環境変数 GEMINI_API_KEY か、config.toml の api_key（config.toml は Git に入らない）
+    "gemini": {
+        "enabled": True,
+        "api_key": "",
+        "model": "gemini-flash-lite-latest",  # Flash-Lite（1日500回）。Flash（1日20回）は温存する
+        "search": True,          # 調べものも Google 検索つきで Gemini に任せる
+        "max_sources": 5,        # 調べたときに画面に出すページの数
+        "daily_limit": 450,      # 念のため、無料枠（500回）より少し手前で止める
+        "reset_hour": 17,        # 無料枠が日本時間の何時に戻るか
+        "timeout": 15,
+        "temperature": 0.3,
+        "history": 6,
+    },
     "wake": {
         "enabled": False,
         # openWakeWord のモデル（.onnx / .tflite）。「レイ」は自分で学習させたものを指定
@@ -35,7 +64,8 @@ DEFAULTS: dict = {
     "ui": {"enabled": True, "port": 8765, "open_browser": True},
     # 天気の場所（open-meteo）
     "weather": {"place": "横浜", "latitude": 35.44, "longitude": 139.64},
-    "log": {"enabled": True, "push": True},
+    # 会話の記録。Data/voice/ にすると Cmd の Actions がデイリーに書き足すので、別の場所に置く
+    "log": {"enabled": True, "push": True, "dir": "Data/ray"},
     # 効果音（起動・画面を開く／閉じる・聞き取り開始・聞き取れた）。Mac の afplay で鳴らす
     "sfx": {"enabled": True, "volume": 0.5, "pitch": 0.5},
 }

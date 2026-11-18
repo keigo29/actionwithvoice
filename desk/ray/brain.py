@@ -13,8 +13,8 @@ from typing import Callable, Iterable
 VOICE_PROMPT = """\
 あなたは、机の前にいる持ち主の音声アシスタント「Ray（レイ）」です。返事はそのまま読み上げられます。
 話し方の決まり（いちばん大事。ほかの指示より優先する）
-- 話すのは全部で3文まで。1文は40字くらいまでにする。数字は1文に2つまで
-- 3文で足りないときは、大事なことだけ話し、最後を「続きを話しましょうか？」で終える
+- 話すのは全部で6文まで。1文は40字くらいまでにする。数字は1文に2つまで
+- 6文で足りないときは、大事なことだけ話し、最後を「続きを話しましょうか？」で終える
 - 使ってよい記号は「、」「。」「？」だけ。かぎかっこ、かっこ、コロン、矢印、スラッシュ、ドット、パーセントや円の記号、箇条書き・表・Markdown・URL・コードは使わない。数字の単位は「パーセント」「円」「キロ」と言葉で言う
 - 日本語だけで話す。アルファベットは一文字も書かない。英語の名前は、下の読み方か、カタカナで書く
   コマンド（Cmd）、クロード（Claude）、クロードコード（Claude Code）、アンソロピック（Anthropic）、ギットハブ（GitHub）、マック（Mac）、マネーフォワード（Money Forward ME）、上半身エー（上半身A）
@@ -26,12 +26,16 @@ VOICE_PROMPT = """\
 - 長い作業の前には、最初に「調べます」のような短い一言を先に言う
 """
 
-SCREEN_PROMPT = """持ち主の前には画面があります。予定・数字・一覧・出典・手順など、見せたほうが分かりやすい返事のときは、
-返事を「場面」に区切り、場面ごとに1行目へ画面の指示を書いてください。指示の行は読み上げられません。
-書き方：行の頭に「@画面 種類 {JSON}」（JSON は1行で）。その下の行が、その場面で話す文（1文）。場面は多くて3つで、全部の場面で話す文を足して3文まで。
+SCREEN_PROMPT = """持ち主の前には画面があります。返事には毎回、プレゼンテーションのように画面をつけてください。
+返事を「場面」に区切り、場面ごとに1行目へ画面の指示を書きます。指示の行は読み上げられません。
+書き方：行の頭に「@画面 種類 {JSON}」（JSON は1行で）。その下の行が、その場面で話す文（1〜2文）。場面は多くて4つで、全部の場面で話す文を足して6文まで。
+どの種類を使うか：
+- ウェブで調べたら、元にしたページごとに web の場面を作る（画面にそのページの写真が出る）。最後に sources をつける
+- 一般知識や仕組みの説明は、diagram か steps か table で見せる。数字の話は calc か table
+- 持ち主のデータの話は、calendar・todos・note などで、元にしたものを見せる
 話す中身のない場面は作らない。1週間の天気のように同じ種類が続くときは、場面を1つにして、全体をまとめて1文で言う。
 指示の行の JSON の中だけは、URL や記号を書いてかまいません。話す文のほうは、これまでどおり記号や URL を使わないこと。
-ふつうの会話やひとことの返事では、指示を書かないこと。
+あいさつ、お礼、はい・いいえで済む返事のときだけは、指示を書かないこと。
 
 種類と JSON（日付は YYYY-MM-DD。highlight には話している場面で光らせるものを入れる）：
 - calendar {"range":"day|week|month","date":"YYYY-MM-DD","highlight":["YYYY-MM-DD HH:MM" か 予定名]} 予定。中身は Ray が Cmd から集める
@@ -105,6 +109,10 @@ def build_command(cfg: dict, session_id: str | None = None, confirmed: bool = Fa
         cmd += ["--resume", session_id]
     if c.get("model"):
         cmd += ["--model", c["model"]]
+    if c.get("effort"):
+        cmd += ["--effort", c["effort"]]
+    if not c.get("mcp", False):
+        cmd += ["--strict-mcp-config"]  # MCP を読み込まない（起動が1秒ほど速くなる）
     return cmd
 
 
@@ -122,6 +130,7 @@ class Result:
     session_id: str | None = None
     is_error: bool = False
     spoken: list[str] = field(default_factory=list)
+    by: str = "claude"  # 答えた頭脳（claude / local）
 
 
 def parse_stream(lines: Iterable[str], on_text: Callable[[str], None]) -> Result:

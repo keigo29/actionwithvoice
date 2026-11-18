@@ -8,22 +8,38 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import importlib.util
+import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import threading
 import time
+import urllib.request
 import webbrowser
 from pathlib import Path
 
 from . import config as config_mod
 from .app import Assistant
 from .brain import Brain
+from .local import HybridBrain
 from .sfx import Sfx
 from .speech import Speaker
 from .ui import StateHub, serve
+
+
+def make_brain(cfg: dict):
+    """ローカル LLM か Gemini を使う設定なら、ローカル → Gemini 無料枠 → Claude の振り分けをつける"""
+    claude = Brain(cfg)
+    if not (cfg["local"]["enabled"] or cfg["gemini"]["enabled"]):
+        return claude
+    brain = HybridBrain(cfg, claude)
+    brain.warm()  # 裏で読み込んでおく（読み終わるまでは Claude が答える）
+    atexit.register(brain.close)  # Ray を止めたら、メモリから外す
+    return brain
 
 
 def check(cfg: dict) -> bool:
@@ -37,6 +53,22 @@ def check(cfg: dict) -> bool:
     line(bool(shutil.which(cfg["claude"]["bin"])), "Claude Code（claude）", "npm i -g @anthropic-ai/claude-code して claude でログイン")
     if os.environ.get("ANTHROPIC_API_KEY"):
         print("⚠️  ANTHROPIC_API_KEY が設定されています。Rayは子プロセスに渡さないので Pro の枠で動きます")
+    if cfg["local"]["enabled"]:
+        try:
+            with urllib.request.urlopen(cfg["local"]["url"].rstrip("/") + "/api/tags", timeout=2) as r:
+                names = [m["name"] for m in json.loads(r.read()).get("models", [])]
+            m = cfg["local"]["model"]
+            line(m in names or f"{m}:latest" in names, f"ローカル LLM（Ollama・{m}）", f"ollama pull {m}")
+        except OSError:
+            line(False, "ローカル LLM（Ollama）", "brew install ollama して ollama serve（使わないなら [local] enabled = false）")
+    if cfg["gemini"]["enabled"]:
+        from .local import GeminiBrain
+
+        if GeminiBrain(cfg).key:
+            print(f"✅ Gemini 無料枠（{cfg['gemini']['model']}）")
+        else:
+            print("⚠️  Gemini の鍵がありません（Gemini の段は飛ばして Claude が答えます）"
+                  " … AI Studio で課金なしのプロジェクトの鍵を作り、環境変数 GEMINI_API_KEY に入れる")
     line(bool(shutil.which("say")), "読み上げ（say）", "macOS で動かしてください")
     cmd = Path(cfg["cmd_dir"])
     line((cmd / ".git").exists(), f"Cmd のクローン（{cmd}）", "config.toml の cmd_dir を直す")
@@ -61,14 +93,134 @@ def key_matcher(name: str):
     return lambda key: key == target
 
 
+class PushToTalk:
+    """キーを押している間の録音。キーの知らせを受ける側では何もせず、別の糸で順に片づける
+
+    キーの知らせ（pynput）の中でマイクを開いたり音を鳴らしたりすると、メモリが足りないとき
+    （ローカル LLM を読み込んだ直後など）に時間がかかり、macOS がキーの監視を止めてしまう。
+    そうなると「離した」が届かず、「聞いています」のまま動かなくなる。
+    念のため、離したのが届かなくても max_hold 秒で区切って聞き取りに回す。
+    """
+
+    def __init__(self, assistant, recorder, max_hold: float = 30.0, stuck_file=None, stuck_sec: float = 10.0):
+        import queue
+
+        self.stuck_file = stuck_file  # 1つの手順が stuck_sec 秒を超えたら、全部の糸の居場所をここに書く
+        self.stuck_sec = stuck_sec
+        self.assistant = assistant
+        self.recorder = recorder
+        self.max_hold = max_hold
+        self.q: queue.Queue = queue.Queue()
+        self.pressed = False      # キーの側（押した・離したの重なりを捨てる）
+        self.recording = False    # 片づける側
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def press(self) -> None:
+        if not self.pressed:
+            self.pressed = True
+            self.q.put("press")
+
+    def release(self) -> None:
+        if self.pressed:
+            self.pressed = False
+            self.q.put("release")
+
+    def _loop(self) -> None:
+        import queue
+
+        while True:
+            try:
+                ev = self.q.get(timeout=self.max_hold if self.recording else None)
+            except queue.Empty:
+                print(f"キーを離したのが届かないので、{self.max_hold:.0f}秒で区切りました")
+                self.pressed = False
+                ev = "release"
+            if self.stuck_file is not None:
+                import faulthandler
+
+                faulthandler.dump_traceback_later(self.stuck_sec, file=self.stuck_file)
+            try:
+                print(f"（キー：{'押した' if ev == 'press' else '離した'}）")
+                if ev == "press" and not self.recording:
+                    self.assistant.interrupt()
+                    self.recorder.start()
+                    self.recording = True
+                elif ev == "release" and self.recording:
+                    self.recording = False
+                    self.assistant.submit_audio(self.recorder.stop())
+            except Exception as e:  # マイクのエラーで、キーの受け付けまで止めない
+                print(f"録音のエラー：{e}")
+                self.recording = False
+                self.assistant.hub.set(state="idle", text="")
+            finally:
+                if self.stuck_file is not None:
+                    faulthandler.cancel_dump_traceback_later()
+
+
+class _Tee:
+    """ターミナルに出す内容を、時刻つきでファイルにも残す"""
+
+    def __init__(self, stream, file):
+        self.stream, self.file, self.fresh = stream, file, True
+
+    def write(self, s: str) -> int:
+        self.stream.write(s)
+        out = []
+        for part in s.splitlines(keepends=True):
+            if self.fresh:
+                out.append(time.strftime("%H:%M:%S "))
+            out.append(part)
+            self.fresh = part.endswith("\n")
+        self.file.write("".join(out))
+        self.file.flush()
+        return len(s)
+
+    def flush(self) -> None:
+        self.stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
+LOG_FILE = Path(__file__).resolve().parent.parent / "ray.log"
+
+
+def start_log(path: Path = LOG_FILE):
+    """ray.log に残す。止まったときは kill -USR1 <pid> で、全部の糸の居場所も書き出せる"""
+    import faulthandler
+
+    f = open(path, "a", encoding="utf-8", buffering=1)
+    f.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} 起動（pid {os.getpid()}） =====\n")
+    sys.stdout = _Tee(sys.stdout, f)
+    sys.stderr = _Tee(sys.stderr, f)
+    faulthandler.register(signal.SIGUSR1, file=f, all_threads=True)
+    return f
+
+
+def log_states(hub) -> None:
+    """画面の状態が変わるたびに記録する"""
+    plain = hub.set
+
+    def set(**kw):
+        before = hub.state.get("state")
+        plain(**kw)
+        if "state" in kw and kw["state"] != before:
+            print(f"［状態］{kw['state']} {kw.get('text', '')}".rstrip())
+    hub.set = set
+
+
 def run(cfg: dict, use_ui: bool) -> None:
     from .audio import Recorder
     from pynput import keyboard
 
+    # kill で止められたときも、終わりの片づけ（ローカル LLM を外す）をする
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    log = start_log()
     hub = StateHub()
+    log_states(hub)
     speaker = Speaker(cfg)
     sfx = Sfx(cfg)
-    assistant = Assistant(cfg, Brain(cfg), speaker, hub, sfx=sfx)
+    assistant = Assistant(cfg, make_brain(cfg), speaker, hub, sfx=sfx)
     if use_ui and cfg["ui"]["enabled"]:
         serve(hub, cfg["ui"]["port"])
         url = f"http://localhost:{cfg['ui']['port']}/"
@@ -84,22 +236,16 @@ def run(cfg: dict, use_ui: bool) -> None:
         threading.Thread(target=wl.run, daemon=True).start()
         print("ウェイクワードで呼べます")
 
-    recorder = Recorder()
+    ptt = PushToTalk(assistant, Recorder(), stuck_file=log)
     is_hotkey = key_matcher(cfg["hotkey"])
-    pressed = False
 
     def on_press(key):
-        nonlocal pressed
-        if is_hotkey(key) and not pressed:
-            pressed = True
-            assistant.interrupt()
-            recorder.start()
+        if is_hotkey(key):
+            ptt.press()
 
     def on_release(key):
-        nonlocal pressed
-        if is_hotkey(key) and pressed:
-            pressed = False
-            assistant.submit_audio(recorder.stop())
+        if is_hotkey(key):
+            ptt.release()
 
     print(f"「{cfg['hotkey']}」キーを押している間に話してください（終わるときは Ctrl+C）")
     sfx.play("boot", wait=3)  # 起動の音（作り終わるのを少しだけ待つ）
@@ -131,7 +277,10 @@ def main(argv=None) -> int:
             def wait(self, timeout=None): return True
 
         speaker = Silent() if a.quiet or not shutil.which("say") else Speaker(cfg)
-        assistant = Assistant(cfg, Brain(cfg), speaker, StateHub())
+        brain = make_brain(cfg)
+        if isinstance(brain, HybridBrain):
+            brain.warm(block=True)  # 1回だけなので、読み込みを待ってからローカルで試す
+        assistant = Assistant(cfg, brain, speaker, StateHub())
         answer = assistant.handle_text(" ".join(a.text))
         print(answer or "")
         speaker.wait(timeout=120)

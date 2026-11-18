@@ -16,8 +16,23 @@ rate = 210
 
 [claude]
 bin = "claude"
-model = ""                   # 空なら Claude Code の既定
+model = "sonnet"             # 返事の速さ優先。空なら Claude Code の既定（Opus。2倍ほど遅い）
+effort = "low"               # 考える量。low / medium / high。空なら既定
+mcp = false                  # true で MCP（Discord・Google Drive など）も読み込む。起動が1秒ほど遅くなる
 timeout = 180
+
+[local]
+enabled = true               # 一次受けをローカル LLM（Ollama）にする。false で Claude だけ
+model = "qwen2.5:7b"
+keep_alive = -1              # -1 は Ray が動いている間ずっとメモリに載せる（約 9.5GB。Ray を止めると外す）。"1h" などにもできる
+timeout = 8                  # この秒数、返事がなければ Claude に回す
+
+[gemini]
+enabled = true               # Gemini の無料枠（有料枠は使わない）。鍵が無ければ、この段は飛ばして Claude
+api_key = ""                 # AI Studio で、課金を設定していないプロジェクトの鍵。環境変数 GEMINI_API_KEY でもよい
+model = "gemini-flash-lite-latest"
+search = true                # 調べものも Google 検索つきで Gemini に任せる
+daily_limit = 450            # 無料枠（1日500回）より少し手前で止める
 
 [wake]
 enabled = false
@@ -37,8 +52,8 @@ latitude = 35.44
 longitude = 139.64
 
 [log]
-enabled = true               # Cmd の Data/voice/ に Q&A を置く
-push = true                  # 置いたら push する（Actions がデイリーに追記）
+enabled = true               # Cmd の Data/ray/ に Q&A を置く（デイリーには入らない）
+push = true                  # 置いたら push する
 
 [sfx]
 enabled = true               # 起動・画面を開く／閉じる・聞き取り開始・聞き取れたときの効果音

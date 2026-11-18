@@ -52,7 +52,7 @@ class Assistant:
         self.deck: list[scenes.Scene] = []  # 今の返事の場面
         self.pos = -1                        # 今見せている場面
         self.cut = threading.Event()         # 割り込まれた（キーを押した）
-        self.rest: list[str] = []            # 3文を超えて、まだ話していない文
+        self.rest: list[str] = []            # 決まった文の数を超えて、まだ話していない文
         self.shot = shots.capture
 
     # --- 割り込み（キーを押した・呼ばれた） ---
@@ -127,7 +127,7 @@ class Assistant:
         self.hub.set(state="thinking", question=question, text="考えています…", scene=None)
         self.on_screen = None  # 新しい返事の画面は、同じ種類でも開く音を鳴らす
         new_deck: list[scenes.Scene] = []
-        budget = guard.Budget()  # 1つの返事で話すのは3文まで
+        budget = guard.Budget()  # 1つの返事で話すのは6文まで
 
         def on_text(t: str) -> None:
             if self.cut.is_set():
@@ -165,7 +165,8 @@ class Assistant:
             on_text(res.answer)
         self.awaiting_confirm = (not res.is_error) and is_confirm(res.answer)
         self.log(self.cfg, question, res.answer,
-                 extra={"raw": raw if raw.strip() != res.answer else "", "trimmed": budget.overflow})
+                 extra={"raw": raw if raw.strip() != res.answer else "", "trimmed": budget.overflow,
+                        "brain": getattr(res, "by", "")})
         self.speaker.wait(timeout=120)
         extra = {}
         if self.awaiting_confirm:
@@ -217,7 +218,7 @@ class Assistant:
             if budget is not None and text:
                 text = budget.take(text, opener_ok=False)  # 場面の文は全部数える
                 if not text:
-                    return  # 3文を話し終えた。残りの場面は「次」で
+                    return  # 決まった文の数を話し終えた。残りの場面は「次」で
             self.pos = i
             self._show(i)
             if text:

@@ -7,7 +7,7 @@
 → 録音 → Whisper（Mac の中で文字にする）
 → claude -p（作業場所は Cmd。返事は短く・記号なし）
 → 届いた文から順に say で読み上げ ＋ 光る円の画面に表示
-→ Q&A を Cmd の Data/voice/ に置いて push（Actions がその日のデイリーに追記）
+→ Q&A を Cmd の Data/ray/ に置いて push（デイリーには書き足さない）
 ```
 
 ## できること（例）
@@ -16,6 +16,28 @@
 - 「git の状態教えて」「このプロジェクトのテスト回して」
 - 続けて話すと前の話の続きになります（5分以内）。「新しい話」で切り替え
 - 話している途中でもキーを押せば止まって、次を聞きます
+
+## 振り分け（ローカル → Gemini 無料枠 → Claude）
+
+Cmd の `Notes/音声連携.md` の「振り分けとフォールバック」「プライバシーの線引き」のとおりに、質問ごとに答える頭脳を選びます。
+
+| 質問 | 順番 | 画面 |
+|---|---|---|
+| あいさつ・一般知識・計算・翻訳 | ローカル → Gemini → Claude | なし |
+| 「詳しく」 | Gemini → Claude | なし |
+| 調べもの・ニュース・値段・店 | Gemini（グーグル検索つき）→ Claude | 調べたページの一覧 |
+| 体調・体重・気分・習慣・筋トレ | Ray が Cmd の記録を読んで、ローカル → Gemini → Claude | 体重・気分のグラフ／習慣のマス目／筋トレ |
+| お金・仕事・予定・メモ・ファイルの作業・天気・朝のまとめ | Claude だけ | Claude が選ぶ |
+
+- ローカル（Ollama、既定は `qwen2.5:7b`）は Mac の外に出ません。文ができるたびに読み上げます。Ray が動いている間はメモリに載せたまま（約 5GB）で、止めると外します
+- Gemini は無料枠だけを使います（Flash-Lite、1日450回で止める。上限のエラーが出たら日本時間17時まで Claude）。お金・仕事・予定・メモと、Claude が答えたやり取りは Gemini に渡しません
+- ローカルや Gemini が自分では無理と判断したとき（「@クロード」と返させる）、止まっている・遅いときは、次の段に回します
+- 同じ会話の中なら、どの頭脳が答えた分も引き継ぎます。ログの JSON の `brain` に、どれが答えたかを残します
+
+準備：
+- ローカル：`brew install ollama` → `ollama pull qwen2.5:7b`。使わないなら `config.toml` の `[local]` を `enabled = false`
+- Gemini：Google AI Studio で、**課金を設定していないプロジェクト**の API キーを作り、環境変数 `GEMINI_API_KEY` か `config.toml` の `[gemini] api_key` に入れる。鍵が無ければ Gemini の段は飛ばします
+- `python -m ray --check` で確かめられます
 
 ## 安全のための決まり
 
@@ -165,6 +187,6 @@ python3 -m unittest discover -s tests -t .   # マイク・スピーカーなし
 | `ray/scenes.py` | 返事を `@画面` の行で場面に分ける |
 | `ray/visuals.py` | 場面の絵のデータを Cmd から作る（カレンダー・やること・習慣など） |
 | `ray/shots.py` | ウェブページの写真（playwright があるとき） |
-| `ray/cmdlog.py` | Q&A を Cmd の Data/voice/ に置いて push |
+| `ray/cmdlog.py` | Q&A を Cmd の Data/ray/ に置いて push（デイリーには入れない） |
 | `ray/sfx.py` | 効果音の合成と再生（afplay） |
-| `ray/guard.py` | 読み上げ直前の守り（日本語だけ・記号なし・3文まで） |
+| `ray/guard.py` | 読み上げ直前の守り（日本語だけ・記号なし・6文まで） |

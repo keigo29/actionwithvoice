@@ -1,4 +1,4 @@
-"""読み上げの直前の守り：日本語だけ・記号なし・3文まで
+"""読み上げの直前の守り：日本語だけ・記号なし・6文まで
 
 指示文（brain.VOICE_PROMPT）で頼んでも、Claude はたまに決まりを破る。
 ここで最後に直してから読み上げる。
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-MAX_SENTENCES = 3
+MAX_SENTENCES = 6
 OPENER_MAX = 12  # この字数までのひとことは、最初の1回だけ数えない
 
 # 英語の名前の読み方（長いものから順に置き換える）
@@ -130,7 +130,7 @@ class Budget:
 
     def take(self, text: str, opener_ok: bool = True) -> str:
         s = sentences(text)
-        # 作業の前の「調べます」のような短いひとことは、3文に数えない（最初の1回だけ）
+        # 作業の前の「調べます」のような短いひとことは、文の数に数えない（最初の1回だけ）
         if opener_ok and not self.opened and len(s) == 1 and len(s[0]) <= OPENER_MAX:
             self.opened = True
             return s[0]

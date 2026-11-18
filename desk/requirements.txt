@@ -2,7 +2,11 @@
 sounddevice
 pynput
 numpy
+# HTTPS の証明書（python.org の Python は Mac の証明書を使わない）
+certifi
 # 音声入力：Apple Silicon なら mlx-whisper（whisper.cpp を使うなら不要）
 mlx-whisper; sys_platform == "darwin" and platform_machine == "arm64"
 # ウェイクワードを使うときだけ
 # openwakeword
+# ウェブページの写真（入れたあと playwright install chromium）
+playwright

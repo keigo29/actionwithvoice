@@ -30,7 +30,17 @@ class BrainTest(unittest.TestCase):
         self.assertNotIn("Bash", cmd)  # ふだんはコマンド全部は許さない
         self.assertNotIn("--resume", cmd)
         # 質問は stdin で渡す（引数の最後にくっつけない）
-        self.assertEqual(cmd[-1], brain.ALWAYS_DENY[-1])
+        self.assertEqual(cmd[-1], "--strict-mcp-config")
+        # 速さ優先の既定：Sonnet・考える量は少なめ・MCP は読み込まない
+        self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
+        self.assertEqual(cmd[cmd.index("--effort") + 1], "low")
+
+    def test_build_command_can_use_defaults_and_mcp(self):
+        c = cfg()
+        c["claude"].update(model="", effort="", mcp=True)
+        cmd = brain.build_command(c)
+        for flag in ("--model", "--effort", "--strict-mcp-config"):
+            self.assertNotIn(flag, cmd)
 
     def test_build_command_confirmed_and_resume(self):
         cmd = brain.build_command(cfg(), session_id="abc", confirmed=True)
@@ -214,7 +224,7 @@ class CmdLogTest(unittest.TestCase):
             self.assertTrue(cmdlog.push(work, p))
             files = subprocess.run(["git", "show", "--name-only", "--format=", "HEAD"], cwd=work,
                                    capture_output=True, text=True).stdout.split()
-            self.assertEqual(files, [f"Data/voice/{p.name}"])
+            self.assertEqual(files, [f"Data/ray/{p.name}"])  # デイリーに書き足す Data/voice/ には置かない
             self.assertIn("書きかけ", (work / "Inbox.md").read_text())  # 書きかけは残る
             remote_head = subprocess.run(["git", "rev-parse", "main"], cwd=remote, capture_output=True, text=True).stdout
             local_head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=work, capture_output=True, text=True).stdout
@@ -336,28 +346,28 @@ if __name__ == "__main__":
 
 
 class VoicePromptTest(unittest.TestCase):
-    """話し方の決まり（3文まで・記号なし・日本語だけ）が、画面の決まりとぶつからないこと"""
+    """話し方の決まり（6文まで・記号なし・日本語だけ）が、画面の決まりとぶつからないこと"""
 
     def test_voice_rules(self):
         p = brain.VOICE_PROMPT
-        self.assertIn("全部で3文まで", p)
+        self.assertIn("全部で6文まで", p)
         self.assertIn("使ってよい記号は「、」「。」「？」だけ", p)
         self.assertIn("アルファベットは一文字も書かない", p)
         self.assertIn("コマンド（Cmd）", p)
 
     def test_screen_rules_fit_three_sentences(self):
         p = brain.SCREEN_PROMPT
-        self.assertIn("場面は多くて3つ", p)
-        self.assertIn("話す文を足して3文まで", p)
+        self.assertIn("場面は多くて4つ", p)
+        self.assertIn("話す文を足して6文まで", p)
         self.assertNotIn("多くて6つ", p)
-        self.assertNotIn("1〜2文", p)
+        self.assertIn("返事には毎回", p)  # 毎回、画面をつける
         self.assertNotIn("todos(due_within 3) → habits", p)
 
     def test_prompt_is_sent(self):
         cmd = brain.build_command(cfg())
         sent = cmd[cmd.index("--append-system-prompt") + 1]
-        self.assertIn("全部で3文まで", sent)
-        self.assertIn("場面は多くて3つ", sent)
+        self.assertIn("全部で6文まで", sent)
+        self.assertIn("場面は多くて4つ", sent)
 
 
 class GuardTest(unittest.TestCase):
@@ -395,3 +405,46 @@ class GuardTest(unittest.TestCase):
             data = json.loads(p.read_text(encoding="utf-8"))
             self.assertNotIn("raw", data)  # 同じなら残さない
             self.assertNotIn("trimmed", data)
+
+
+class PushToTalkTest(unittest.TestCase):
+    """キーの知らせの中では何もしない（遅いと macOS がキーの監視を止め、離したのが届かなくなる）"""
+
+    def make(self, max_hold=30.0, slow_start=0.0):
+        import threading
+        import time
+
+        from ray.__main__ import PushToTalk
+
+        events, done = [], threading.Event()
+
+        class A:
+            hub = StateHub()
+            def interrupt(self): events.append("interrupt")
+            def submit_audio(self, frames): events.append(("audio", frames)); done.set()
+
+        class R:
+            def start(self): time.sleep(slow_start); events.append("start")
+            def stop(self): events.append("stop"); return b"xx"
+
+        return PushToTalk(A(), R(), max_hold=max_hold), events, done
+
+    def test_press_returns_at_once_even_if_mic_is_slow(self):
+        import time
+
+        ptt, events, done = self.make(slow_start=0.5)
+        t = time.monotonic()
+        ptt.press()
+        ptt.press()  # 押しっぱなしの繰り返しは捨てる
+        ptt.release()
+        self.assertLess(time.monotonic() - t, 0.1)
+        self.assertTrue(done.wait(3))
+        self.assertEqual(events, ["interrupt", "start", "stop", ("audio", b"xx")])
+
+    def test_lost_release_is_cut_after_max_hold(self):
+        ptt, events, done = self.make(max_hold=0.2)
+        ptt.press()
+        self.assertTrue(done.wait(3))
+        self.assertEqual(events[-1], ("audio", b"xx"))
+        ptt.press()  # 次はまた押せる
+        self.assertEqual(ptt.pressed, True)
