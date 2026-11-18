@@ -39,3 +39,7 @@ longitude = 139.64
 [log]
 enabled = true               # Cmd の Data/voice/ に Q&A を置く
 push = true                  # 置いたら push する（Actions がデイリーに追記）
+
+[sfx]
+enabled = true               # 起動・画面を開く／閉じる・聞き取り開始・聞き取れたときの効果音
+volume = 0.5                 # 0〜1

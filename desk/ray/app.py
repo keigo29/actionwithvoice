@@ -27,10 +27,17 @@ SMALL_RE = re.compile(r"^(小さく|ちいさく|戻して|元に戻して)" + _
 CLOSE_RE = re.compile(r"^(閉じて|画面を閉じて|画面を消して)" + _END)
 
 
+class _NoSfx:
+    def play(self, name: str, wait: float = 0.0) -> None:
+        pass
+
+
 class Assistant:
     def __init__(self, cfg, brain, speaker, hub, log=cmdlog.log_async, transcribe=stt.transcribe,
-                 clock=time.monotonic):
+                 clock=time.monotonic, sfx=None):
         self.cfg = cfg
+        self.sfx = sfx or _NoSfx()
+        self.on_screen: str | None = None    # 今出している画面の種類（効果音を鳴らすか決める）
         self.brain = brain
         self.speaker = speaker
         self.hub = hub
@@ -53,6 +60,7 @@ class Assistant:
         """話している途中・考えている途中でも、すぐ止めて次を聞く"""
         self.cut.set()
         self.speaker.stop()
+        self.sfx.play("listen")
         self.brain.cancel()
         self.hub.set(state="listening", text="聞いています…")
 
@@ -79,6 +87,8 @@ class Assistant:
                     self.speaker.say("聞き取りでエラーが出ました")
                     self.hub.set(state="idle", text="")
                     return
+            if text.strip():
+                self.sfx.play("ack")  # 聞き取れた。考え始める合図
             self.handle_text(text)
         finally:
             self.busy.clear()
@@ -95,6 +105,7 @@ class Assistant:
         if RESET_RE.match(question):
             self.session_id, self.awaiting_confirm = None, False
             self.deck, self.pos = [], -1
+            self._screen(None)
             self.hub.set(scene=None)
             return self._local(question, "新しい話にしますね")
         if not self.awaiting_confirm and self._navigate(question):
@@ -114,6 +125,7 @@ class Assistant:
         fresh = self.clock() - self.last < self.cfg["conversation_timeout"]
         session = self.session_id if (fresh or confirmed) else None
         self.hub.set(state="thinking", question=question, text="考えています…", scene=None)
+        self.on_screen = None  # 新しい返事の画面は、同じ種類でも開く音を鳴らす
         new_deck: list[scenes.Scene] = []
         budget = guard.Budget()  # 1つの返事で話すのは3文まで
 
@@ -158,6 +170,7 @@ class Assistant:
         extra = {}
         if self.awaiting_confirm:
             extra["scene"] = {"kind": "confirm", "data": {"text": res.answer}, "index": 0, "total": 1}
+            self._screen("confirm")
         self.hub.set(state="confirm" if self.awaiting_confirm else "idle", answer=res.answer, text="", **extra)
         return res.answer
 
@@ -183,7 +196,16 @@ class Assistant:
         sc = self.deck[i]
         last_visual = next((self.deck[j].visual for j in range(i, -1, -1) if self.deck[j].visual), None)
         scene = dict(last_visual, index=i, total=len(self.deck)) if last_visual else None
+        self._screen(scene["kind"] if scene else None)
         self.hub.set(state=state, text=sc.speech, scene=scene)
+
+    def _screen(self, kind: str | None) -> None:
+        """画面の種類が変わったときだけ、開く・閉じる音を鳴らす"""
+        if kind and kind != self.on_screen:
+            self.sfx.play("open")
+        elif not kind and self.on_screen:
+            self.sfx.play("close")
+        self.on_screen = kind
 
     def _play(self, start: int, stop: int | None = None, budget: guard.Budget | None = None) -> None:
         """start の場面から順に、話し終えるのを待ちながら進める。budget があれば、その文の数まで"""
@@ -224,6 +246,7 @@ class Assistant:
             return True
         if CLOSE_RE.match(q):
             self.deck, self.pos = [], -1
+            self._screen(None)
             self.hub.set(state="idle", scene=None, text="")
             return True
         if not self.deck:
