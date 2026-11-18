@@ -22,13 +22,15 @@ class RenderTest(unittest.TestCase):
                     lengths[name] = w.getnframes() / 44100
                     frames = w.readframes(w.getnframes())
                 peak = max(abs(int.from_bytes(frames[i:i + 2], "little", signed=True)) for i in range(0, len(frames), 2))
-                self.assertGreater(peak, 20000)  # 小さすぎない
                 self.assertLess(peak, 32767)     # 割れない
+                if name == "boot":
+                    self.assertGreater(peak, 20000)  # 起動はしっかり
+                else:
+                    self.assertGreater(peak, 5000)   # ほかはさりげなく（小さめ）。でも聞こえる
+                    self.assertLess(peak, 13000)
             self.assertGreater(lengths["boot"], 2.0)  # 起動はたっぷり
-            self.assertEqual(max(lengths, key=lengths.get), "boot")
-            self.assertLess(lengths["listen"], lengths["open"])  # 合図は、画面を開く音より短く
-            self.assertLess(lengths["ack"], lengths["open"])
-            self.assertLess(lengths["open"], 1.6)
+            for name in ("open", "close", "listen", "ack"):
+                self.assertLessEqual(lengths[name], 0.5, name)  # ほかは響きの尾まで含めて 0.5 秒で終わる
 
 
 class SoftTest(unittest.TestCase):

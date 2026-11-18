@@ -39,7 +39,7 @@ import wave
 from pathlib import Path
 
 RATE = 44100
-VERSION = 4  # 音の作り方を変えたら上げる（取っておいた音を作り直す）
+VERSION = 5  # 音の作り方を変えたら上げる（取っておいた音を作り直す）
 PITCH = 0.5  # 音の高さの倍率（0.5 で1オクターブ下）。config の sfx.pitch で変えられる
 _pitch = PITCH
 NAMES = ("boot", "open", "close", "listen", "ack")
@@ -347,57 +347,50 @@ def boot() -> list[float]:
     return out
 
 
-# 起動と同じ材料・同じ和音（ラ・ミ・ラ・ミ）の、小さな版
+# 起動以外は、0.5 秒で終わるさりげない「ピョン」。起動と同じ材料（ちらつく FM のガラス・息・響き）を、
+# ごく短く・高すぎない高さ（実際の高さで 330〜660 Hz）で使う。高さは起動の和音（ラ・ミ）から選ぶ
 
-CHORD = (440, 659.3, 880, 1318.5)
-
-
-def _chord(out, at, dur, notes, gains, glide=1.01, attack=0.1, curve=2.8, trem=7, depth=0.18):
-    for f, g in zip(notes, gains):
-        _mix(out, _bloom(dur, f, f * glide, attack=attack, curve=curve, ratio=1.41, index=1.4, open_at=0.18,
-                         trem=trem, trem_depth=depth), at, g)
+def _pyon(f0, f1, dur=0.24, attack=0.025, amp=1.0, air=0.18) -> list[float]:
+    """ピョン：丸く立ち上がって、すっと高さが跳ねる短い音"""
+    return _bloom(dur, f0, f1, attack=attack, curve=4.5, ratio=1.41, index=1.0, open_at=0.15, detune=6,
+                  air=air, trem=7, trem_depth=0.12)
 
 
 def open_() -> list[float]:
-    """小さな起動：低いうなりと息を吸い込み、上の2音で「ファン」と開く"""
+    """画面を開く：ラ→ミへ上がるピョン"""
     out: list[float] = []
-    _mix(out, _tone(0.75, 110, 165, attack=0.22, curve=3, detune=12, fixed=True), 0.0, 0.3)
-    _mix(out, _breath(0.45, 300, 3000, attack=0.3, curve=5, seed=11), 0.0, 0.42)
-    _mix(out, _lowpass(_data(0.18, 1800, 3400, step=(0.025, 0.045), seed=12, crush=False), 2500), 0.1, 0.08)
-    _chord(out, 0.26, 0.75, CHORD[1:3], (0.4, 0.26), glide=1.02, attack=0.08)
-    _mix(out, _breath(0.6, 800, 5000, attack=0.08, curve=4, seed=14), 0.25, 0.2)
+    _mix(out, _pyon(880, 1318.5), 0.0, 0.6)
+    _mix(out, _breath(0.18, 600, 2400, attack=0.05, curve=5, seed=11), 0.0, 0.12)
     return out
 
 
 def close() -> list[float]:
-    """起動の逆：和音が下がりながら息とともに消え、低いうなりが沈む"""
+    """画面を閉じる：ミ→ラへ下がるピョン"""
     out: list[float] = []
-    _chord(out, 0.0, 0.8, CHORD[1:3], (0.38, 0.24), glide=0.94, attack=0.05, curve=3.4)
-    _mix(out, _breath(0.55, 4000, 300, attack=0.06, curve=4, seed=13), 0.0, 0.3)
-    _mix(out, _tone(0.6, 165, 110, attack=0.05, curve=3.5, detune=12, fixed=True), 0.05, 0.22)
+    _mix(out, _pyon(1318.5, 880), 0.0, 0.6)
+    _mix(out, _breath(0.18, 2400, 600, attack=0.03, curve=5, seed=13), 0.0, 0.1)
     return out
 
 
 def listen() -> list[float]:
-    """耳を澄ます：短く息を吸い、低い2音がそっと開く"""
+    """聞き始め：低めのミ→ラへ、小さく上がるピョン"""
     out: list[float] = []
-    _mix(out, _breath(0.22, 400, 2500, attack=0.14, curve=5, seed=21), 0.0, 0.3)
-    _chord(out, 0.08, 0.42, (CHORD[0], CHORD[1]), (0.4, 0.28), glide=1.0, attack=0.05, curve=3.5)
+    _mix(out, _pyon(659.3, 880, dur=0.2), 0.0, 0.55)
     return out
 
 
 def ack() -> list[float]:
-    """受け取った：上の2音が小さく開き、遠くでデータの粒が少し走る"""
+    """聞き取れた：ラから少しだけ上がる、いちばん小さなピョン"""
     out: list[float] = []
-    _chord(out, 0.0, 0.45, (CHORD[2], CHORD[3]), (0.32, 0.18), glide=1.0, attack=0.04, curve=4)
-    _mix(out, _lowpass(_data(0.2, 1800, 3400, step=(0.025, 0.04), seed=22, crush=False), 2500), 0.06, 0.1)
+    _mix(out, _pyon(880, 1046.5, dur=0.16, attack=0.032, air=0.1), 0.0, 0.5)
     return out
 
 
 SOUNDS = {"boot": boot, "open": open_, "close": close, "listen": listen, "ack": ack}
+PEAK_DB = {"open": -9.0, "close": -10.0, "listen": -10.0, "ack": -12.0}  # 起動以外はさりげなく（小さめ）
 SPACE = {  # 名前 → (残りの響きの長さ, ディレイの量, リバーブの量)
-    "boot": (1.0, 0.3, 0.45), "open": (0.4, 0.22, 0.32), "close": (0.35, 0.18, 0.28),
-    "listen": (0.3, 0.15, 0.22), "ack": (0.25, 0.15, 0.2),
+    "boot": (1.0, 0.3, 0.45), "open": (0.24, 0.12, 0.16), "close": (0.24, 0.12, 0.16),
+    "listen": (0.26, 0.1, 0.14), "ack": (0.3, 0.1, 0.12),
 }
 
 
@@ -410,7 +403,7 @@ def render(folder: Path, pitch: float = PITCH) -> dict[str, Path]:
     for name, make in SOUNDS.items():
         tail, wet, verb = SPACE[name]
         left, right = _space(make(), tail, wet=wet, verb=verb)
-        paths[name] = _write(folder / f"{name}.wav", left, right)
+        paths[name] = _write(folder / f"{name}.wav", left, right, peak_db=PEAK_DB.get(name, -3.0))
     return paths
 
 
