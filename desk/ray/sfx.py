@@ -23,6 +23,8 @@ import wave
 from pathlib import Path
 
 RATE = 44100
+PITCH = 0.5  # 音の高さの倍率（0.5 で1オクターブ下）。config の sfx.pitch で変えられる
+_pitch = PITCH
 NAMES = ("boot", "open", "close", "listen", "ack")
 
 
@@ -43,10 +45,12 @@ def _env(n: int, attack: float, release: float, curve: float = 3.0) -> list[floa
 
 
 def _tone(dur: float, f0: float, f1: float | None = None, attack=0.005, curve=4.0,
-          shape: str = "sine", amp: float = 1.0) -> list[float]:
-    """f0 から f1 へ音の高さが動く音"""
+          shape: str = "sine", amp: float = 1.0, fixed: bool = False) -> list[float]:
+    """f0 から f1 へ音の高さが動く音。fixed なら pitch の倍率をかけない"""
     n = int(dur * RATE)
     f1 = f0 if f1 is None else f1
+    if not fixed:
+        f0, f1 = f0 * _pitch, f1 * _pitch
     env = _env(n, attack, 1, curve)
     ph, out = 0.0, []
     for i in range(n):
@@ -57,7 +61,7 @@ def _tone(dur: float, f0: float, f1: float | None = None, attack=0.005, curve=4.
         elif shape == "tri":
             v = 2 / math.pi * math.asin(math.sin(ph))
         else:  # 少しだけ倍音のある、ガラスのような音
-            v = math.sin(ph) + 0.3 * math.sin(2 * ph) + 0.12 * math.sin(3.01 * ph)
+            v = math.sin(ph) + 0.25 * math.sin(2 * ph) + 0.05 * math.sin(3.01 * ph)
         out.append(v * env[i] * amp)
     return out
 
@@ -65,6 +69,7 @@ def _tone(dur: float, f0: float, f1: float | None = None, attack=0.005, curve=4.
 def _noise(dur: float, lo: float, hi: float, attack=0.01, curve=4.0, amp=1.0, seed=0) -> list[float]:
     """帯域を絞ったノイズ（風切り・空気の音）。lo/hi は通す周波数のおおよその下と上"""
     rnd = random.Random(seed)
+    lo, hi = lo * _pitch, hi * _pitch
     n = int(dur * RATE)
     env = _env(n, attack, 1, curve)
     a_hi = math.exp(-2 * math.pi * hi / RATE)
@@ -128,8 +133,9 @@ def _write(path: Path, left: list[float], right: list[float], peak_db: float = -
 
 def boot() -> list[float]:
     out: list[float] = []
-    _mix(out, _tone(1.6, 55, 110, attack=0.6, curve=2.5, shape="tri"), 0.0, 0.55)   # 低いうなりが立ち上がる
-    _mix(out, _tone(1.6, 82.5, 165, attack=0.6, curve=2.5), 0.0, 0.25)
+    # 低いうなりが立ち上がる（Mac のスピーカーでも聞こえる高さに固定）
+    _mix(out, _tone(1.6, 80, 160, attack=0.6, curve=2.5, shape="tri", fixed=True), 0.0, 0.5)
+    _mix(out, _tone(1.6, 120, 240, attack=0.6, curve=2.5, fixed=True), 0.0, 0.22)
     _mix(out, _noise(1.1, 300, 2500, attack=0.9, curve=6), 0.0, 0.10)                # 吸い込むような風
     rnd = random.Random(7)
     t = 0.35
@@ -179,8 +185,10 @@ def ack() -> list[float]:
 SOUNDS = {"boot": boot, "open": open_, "close": close, "listen": listen, "ack": ack}
 
 
-def render(folder: Path) -> dict[str, Path]:
-    """全部の音を folder に WAV で書く"""
+def render(folder: Path, pitch: float = PITCH) -> dict[str, Path]:
+    """全部の音を folder に WAV で書く。pitch は音の高さの倍率"""
+    global _pitch
+    _pitch = pitch
     folder.mkdir(parents=True, exist_ok=True)
     paths = {}
     for name, make in SOUNDS.items():
@@ -197,6 +205,7 @@ class Sfx:
         c = cfg.get("sfx", {})
         self.enabled = bool(c.get("enabled", True)) and bool(which("afplay"))
         self.volume = float(c.get("volume", 0.5))
+        self.pitch = float(c.get("pitch", PITCH))
         self.popen = popen
         self.paths: dict[str, Path] = {}
         self.ready = threading.Event()
@@ -206,7 +215,7 @@ class Sfx:
 
     def _prepare(self, folder: Path) -> None:
         try:
-            self.paths = render(folder)
+            self.paths = render(folder, self.pitch)
         except Exception as e:  # 効果音が作れなくても、会話は止めない
             print(f"効果音を作れませんでした：{e}")
         finally:
