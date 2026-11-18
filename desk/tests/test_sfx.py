@@ -25,8 +25,22 @@ class RenderTest(unittest.TestCase):
                 self.assertGreater(peak, 20000)  # 小さすぎない
                 self.assertLess(peak, 32767)     # 割れない
             self.assertGreater(lengths["boot"], 2.0)       # 起動はたっぷり
-            self.assertLess(lengths["listen"], 0.6)        # 合図は短く
-            self.assertLess(lengths["open"], 1.0)  # 響きの尾を含めて1秒まで
+            self.assertLess(lengths["listen"], 0.8)        # 合図は短く（響きの尾を含めて）
+            self.assertLess(lengths["open"], 1.2)  # 響きの尾を含めて
+
+
+class SoftTest(unittest.TestCase):
+    """「カチッ」ではなく「ファン」：始まりが鋭くないこと"""
+
+    def test_soft_attack(self):
+        with tempfile.TemporaryDirectory() as d:
+            for name, p in sfx.render(Path(d)).items():
+                with wave.open(str(p)) as w:
+                    raw = w.readframes(w.getnframes())
+                left = [int.from_bytes(raw[i:i + 2], "little", signed=True) for i in range(0, len(raw), 4)]
+                peak = max(abs(v) for v in left)
+                first = max(abs(v) for v in left[: int(0.008 * 44100)])  # 最初の 8 ミリ秒
+                self.assertLess(first, peak * 0.3, name)
 
 
 class SfxTest(unittest.TestCase):

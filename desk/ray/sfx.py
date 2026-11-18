@@ -16,6 +16,9 @@ SF らしさを作っている要素（映画の HUD の録画の分析と、こ
   9 グリッチ                       … ごく短い切れ端を3回くり返す
  10 空間に投影された広がり         … 左右に跳ねるディレイと、残響（リバーブ）
 
+音の手ざわりは「カチッ」ではなく「ファン」：立ち上がりを丸くし、明るさがふくらんでから閉じ、
+息の音を重ね、高いところを削り、残響を多めにする（_bloom・_breath）。7 と 9 は今は使っていない。
+
   boot   起動したとき
   open   画面（カード）を出すとき
   close  画面を閉じるとき
@@ -36,7 +39,7 @@ import wave
 from pathlib import Path
 
 RATE = 44100
-VERSION = 2  # 音の作り方を変えたら上げる（取っておいた音を作り直す）
+VERSION = 3  # 音の作り方を変えたら上げる（取っておいた音を作り直す）
 PITCH = 0.5  # 音の高さの倍率（0.5 で1オクターブ下）。config の sfx.pitch で変えられる
 _pitch = PITCH
 NAMES = ("boot", "open", "close", "listen", "ack")
@@ -249,68 +252,134 @@ def _write(path: Path, left: list[float], right: list[float], peak_db: float = -
     return path
 
 
+# ---------------------------------------------------------------- やわらかい音（「ファン」）の部品
+
+def _lowpass(src: list[float], cutoff: float) -> list[float]:
+    """高いところを削って、輪郭をやわらげる（1次のローパス）"""
+    a = math.exp(-TAU * cutoff / RATE)
+    y, out = 0.0, []
+    for v in src:
+        y = (1 - a) * v + a * y
+        out.append(y)
+    return out
+
+
+def _swell(n: int, attack: float, curve: float = 3.0) -> list[float]:
+    """ふくらんで、なめらかに消える形（立ち上がりも丸い）"""
+    a = max(1, _n(attack))
+    out = []
+    for i in range(n):
+        if i < a:
+            out.append(0.5 - 0.5 * math.cos(math.pi * i / a))  # 丸い立ち上がり
+        else:
+            t = (i - a) / max(1, n - a)
+            out.append(math.exp(-curve * t) * (1 - t) ** 0.5)
+    return out
+
+
+def _bloom(dur, f0, f1=None, attack=0.06, curve=3.0, ratio=1.0, index=1.6, open_at=0.3, detune=7.0,
+           air=0.35, air_q=3.0, fixed=False, trem=0.0, trem_depth=0.0) -> list[float]:
+    """「ファン」：明るさ（FM の倍音）がふくらんでから閉じていく音に、同じ高さの息の音を重ねる。
+    少しずらした2つの音でうなりを出し、全体を丸く削る"""
+    n = _n(dur)
+    a0 = _hz(f0, fixed)
+    a1 = a0 if f1 is None else _hz(f1, fixed)
+    env = _swell(n, attack, curve)
+    rs = (2 ** (-detune / 1200), 2 ** (detune / 1200))
+    pc, pm = [0.0, 0.0], [0.0, 0.0]
+    rnd = random.Random(int(f0))
+    low = band = 0.0
+    out = []
+    for i in range(n):
+        t = i / max(1, n - 1)
+        f = a0 * (a1 / a0) ** t
+        # 明るさは open_at でいちばん開き、そのあと閉じる（「ファ」→「ン」）
+        bright = math.sin(math.pi * min(1.0, t / (2 * open_at))) if t < 2 * open_at else 0.15
+        v = 0.0
+        for k in (0, 1):
+            pm[k] += TAU * f * rs[k] * ratio / RATE
+            pc[k] += TAU * f * rs[k] / RATE
+            v += math.sin(pc[k] + index * bright * math.sin(pm[k]))
+        v *= 0.5
+        # 息：同じ高さのまわりだけ通したノイズ
+        k2 = 2 * math.sin(math.pi * min(f * 2, RATE / 6) / RATE)
+        low += k2 * band
+        band += k2 * (rnd.uniform(-1, 1) - low - band / air_q)
+        v += band * air * (0.4 + 0.6 * bright)
+        if trem:
+            v *= 1 - trem_depth * (0.5 + 0.5 * math.sin(TAU * trem * i / RATE))
+        out.append(v * env[i])
+    return _lowpass(out, _hz(f0, fixed) * 6 + 1500)
+
+
+def _breath(dur, lo, hi, attack=0.15, curve=3.0, seed=0) -> list[float]:
+    """空気が流れるような「フワッ」。丸い立ち上がりのノイズを、低い方から高い方へ通す"""
+    rnd = random.Random(seed)
+    n = _n(dur)
+    env = _swell(n, attack, curve)
+    low = band = 0.0
+    out = []
+    for i in range(n):
+        f = _hz(lo, False) * ((hi / lo) ** (i / max(1, n - 1)))
+        k = 2 * math.sin(math.pi * min(f, RATE / 6) / RATE)
+        low += k * band
+        band += k * (rnd.uniform(-1, 1) - low - band / 2.0)
+        out.append(band * env[i] * 0.6)
+    return out
+
+
 # ---------------------------------------------------------------- 音
 
 def boot() -> list[float]:
     out: list[float] = []
-    # 低いうなりが、うなりを伴って立ち上がる（Mac のスピーカーでも聞こえる高さに固定）
-    _mix(out, _tone(1.7, 80, 160, attack=0.7, curve=2.5, detune=12, fixed=True), 0.0, 0.45)
-    _mix(out, _tone(1.7, 120, 240, attack=0.7, curve=2.5, detune=8, fixed=True), 0.0, 0.18)
-    # 共鳴フィルターが下から上へ走る（エネルギーが溜まっていく）
-    _mix(out, _zip(1.15, 300, 5000, q=10, attack=0.9, curve=7, seed=3), 0.0, 0.45)
-    # データの粒（後半ほど密に、大きく）
-    _mix(out, _data(0.7, 1400, 3600, step=(0.02, 0.05), seed=7), 0.4, 0.22)
-    _mix(out, _data(0.35, 1800, 4400, step=(0.012, 0.025), seed=8), 0.78, 0.3)
-    # カチッの連打で「つながる」
-    for k, t in enumerate((1.02, 1.07, 1.10, 1.12)):
-        _mix(out, _click(1.0, 3600 + 300 * k), t, 0.5)
-    # 開く：FM のガラスの和音。ちらつき（トレモロ）とうなりで、光の投影のように
-    for f, g in ((440, 0.36), (659.3, 0.26), (880, 0.22), (1318.5, 0.14)):
-        _mix(out, _fm(1.4, f, ratio=1.41, index=2.2, attack=0.004, curve=3.2, index_decay=3,
-                      trem=19, trem_depth=0.35), 1.12, g)
-    _mix(out, _tone(1.4, 880, 880, attack=0.01, curve=3, detune=9), 1.12, 0.12)
-    # 最後に細く残る高い電子音（録画の 6〜10 kHz の持続音にあたる）
-    _mix(out, _tone(1.2, 7000, 7000, attack=0.2, curve=3, fixed=True, trem=31, trem_depth=0.5), 1.25, 0.025)
-    return _stutter(out, 1.12, 0.022, 3)  # 開く瞬間にグリッチ
+    # 低いうなりが、うなりを伴ってゆっくりふくらむ（Mac のスピーカーでも聞こえる高さに固定）
+    _mix(out, _tone(2.0, 80, 160, attack=0.9, curve=2.2, detune=12, fixed=True), 0.0, 0.45)
+    _mix(out, _tone(2.0, 120, 240, attack=0.9, curve=2.2, detune=8, fixed=True), 0.0, 0.16)
+    # 空気が吸い込まれていく
+    _mix(out, _breath(1.3, 200, 3000, attack=1.0, curve=6, seed=3), 0.0, 0.5)
+    # データの粒は、遠くでやわらかく
+    _mix(out, _lowpass(_data(0.7, 1400, 3200, step=(0.03, 0.06), seed=7, crush=False), 2500), 0.45, 0.12)
+    # 開く：「ファーン」と和音がふくらむ。ゆっくりしたちらつきで、光の投影のように
+    for f, g in ((440, 0.4), (659.3, 0.3), (880, 0.22), (1318.5, 0.1)):
+        _mix(out, _bloom(2.0, f, f * 1.01, attack=0.12, curve=2.6, ratio=1.41, index=1.4, open_at=0.18,
+                         trem=7, trem_depth=0.18), 1.05, g)
+    _mix(out, _breath(1.2, 800, 5000, attack=0.1, curve=4, seed=4), 1.03, 0.25)
+    return out
 
 
 def open_() -> list[float]:
     out: list[float] = []
-    _mix(out, _zip(0.2, 500, 6000, q=9, attack=0.12, curve=6, seed=11), 0.0, 0.55)   # ズッと開く
-    _mix(out, _fm(0.14, 700, ratio=2.76, index=3, glide=2.2, curve=5), 0.03, 0.35)   # 上がる金属のチャープ
-    _mix(out, _click(1.0, 3400), 0.15, 0.6)
-    _mix(out, _click(0.7, 4200), 0.175, 0.45)
-    _mix(out, _fm(0.35, 1760, ratio=1.41, index=1.6, curve=6, trem=22, trem_depth=0.4), 0.155, 0.22)
-    _mix(out, _data(0.12, 2000, 4000, step=(0.012, 0.02), seed=12), 0.17, 0.12)       # 中身が流れ込む
+    _mix(out, _breath(0.45, 400, 3500, attack=0.12, curve=4, seed=11), 0.0, 0.4)       # フワッ
+    _mix(out, _bloom(0.6, 880, 1046.5, attack=0.07, curve=3.2, ratio=1.41, index=1.5), 0.04, 0.45)  # ファン
+    _mix(out, _bloom(0.6, 1318.5, 1568, attack=0.09, curve=3.4, ratio=1.41, index=1.0, air=0.2), 0.06, 0.22)
     return out
 
 
 def close() -> list[float]:
     out: list[float] = []
-    _mix(out, _click(0.8, 3200), 0.0, 0.55)
-    _mix(out, _fm(0.18, 1600, ratio=2.76, index=3, glide=0.3, curve=4), 0.01, 0.35)  # 下がる金属のチャープ
-    _mix(out, _zip(0.2, 5000, 400, q=9, attack=0.01, curve=5, seed=13), 0.02, 0.45)  # シュンと閉じる
-    return _crush(out, 8, 2)
+    _mix(out, _bloom(0.5, 1046.5, 784, attack=0.04, curve=3.5, ratio=1.41, index=1.3), 0.0, 0.45)   # ファン（下がる）
+    _mix(out, _breath(0.4, 3000, 300, attack=0.05, curve=4, seed=13), 0.0, 0.35)    # フゥッと消える
+    return out
 
 
 def listen() -> list[float]:
     out: list[float] = []
-    _mix(out, _fm(0.07, 1568, ratio=1.41, index=1.5, curve=5), 0.0, 0.5)
-    _mix(out, _fm(0.1, 2349, ratio=1.41, index=1.5, curve=5, trem=24, trem_depth=0.3), 0.075, 0.5)
+    _mix(out, _bloom(0.22, 1568, attack=0.03, curve=4, ratio=1.41, index=1.0, open_at=0.2, air=0.25), 0.0, 0.45)
+    _mix(out, _bloom(0.3, 2349, attack=0.035, curve=4, ratio=1.41, index=1.0, open_at=0.2, air=0.25), 0.1, 0.4)
     return out
 
 
 def ack() -> list[float]:
     out: list[float] = []
-    for k, f in enumerate((2093, 2637, 3136)):  # 速い3つの粒（処理を始めた合図）
-        _mix(out, _fm(0.04, f, ratio=2.76, index=1.2, curve=6), 0.03 * k, 0.32)
-    return _crush(out, 7, 3)
+    for k, f in enumerate((2093, 2637, 3136)):  # やわらかい3つの粒（処理を始めた合図）
+        _mix(out, _bloom(0.16, f, attack=0.02, curve=5, ratio=2.76, index=0.8, open_at=0.2, air=0.15), 0.045 * k, 0.3)
+    return out
 
 
 SOUNDS = {"boot": boot, "open": open_, "close": close, "listen": listen, "ack": ack}
 SPACE = {  # 名前 → (残りの響きの長さ, ディレイの量, リバーブの量)
-    "boot": (0.9, 0.3, 0.35), "open": (0.35, 0.22, 0.22), "close": (0.3, 0.18, 0.18),
-    "listen": (0.25, 0.15, 0.12), "ack": (0.2, 0.15, 0.1),
+    "boot": (1.0, 0.3, 0.45), "open": (0.4, 0.22, 0.32), "close": (0.35, 0.18, 0.28),
+    "listen": (0.3, 0.15, 0.22), "ack": (0.25, 0.15, 0.2),
 }
 
 
