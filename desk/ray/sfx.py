@@ -39,7 +39,7 @@ import wave
 from pathlib import Path
 
 RATE = 44100
-VERSION = 3  # 音の作り方を変えたら上げる（取っておいた音を作り直す）
+VERSION = 4  # 音の作り方を変えたら上げる（取っておいた音を作り直す）
 PITCH = 0.5  # 音の高さの倍率（0.5 で1オクターブ下）。config の sfx.pitch で変えられる
 _pitch = PITCH
 NAMES = ("boot", "open", "close", "listen", "ack")
@@ -347,32 +347,50 @@ def boot() -> list[float]:
     return out
 
 
+# 起動と同じ材料・同じ和音（ラ・ミ・ラ・ミ）の、小さな版
+
+CHORD = (440, 659.3, 880, 1318.5)
+
+
+def _chord(out, at, dur, notes, gains, glide=1.01, attack=0.1, curve=2.8, trem=7, depth=0.18):
+    for f, g in zip(notes, gains):
+        _mix(out, _bloom(dur, f, f * glide, attack=attack, curve=curve, ratio=1.41, index=1.4, open_at=0.18,
+                         trem=trem, trem_depth=depth), at, g)
+
+
 def open_() -> list[float]:
+    """小さな起動：低いうなりと息を吸い込み、上の2音で「ファン」と開く"""
     out: list[float] = []
-    _mix(out, _breath(0.45, 400, 3500, attack=0.12, curve=4, seed=11), 0.0, 0.4)       # フワッ
-    _mix(out, _bloom(0.6, 880, 1046.5, attack=0.07, curve=3.2, ratio=1.41, index=1.5), 0.04, 0.45)  # ファン
-    _mix(out, _bloom(0.6, 1318.5, 1568, attack=0.09, curve=3.4, ratio=1.41, index=1.0, air=0.2), 0.06, 0.22)
+    _mix(out, _tone(0.75, 110, 165, attack=0.22, curve=3, detune=12, fixed=True), 0.0, 0.3)
+    _mix(out, _breath(0.45, 300, 3000, attack=0.3, curve=5, seed=11), 0.0, 0.42)
+    _mix(out, _lowpass(_data(0.18, 1800, 3400, step=(0.025, 0.045), seed=12, crush=False), 2500), 0.1, 0.08)
+    _chord(out, 0.26, 0.75, CHORD[1:3], (0.4, 0.26), glide=1.02, attack=0.08)
+    _mix(out, _breath(0.6, 800, 5000, attack=0.08, curve=4, seed=14), 0.25, 0.2)
     return out
 
 
 def close() -> list[float]:
+    """起動の逆：和音が下がりながら息とともに消え、低いうなりが沈む"""
     out: list[float] = []
-    _mix(out, _bloom(0.5, 1046.5, 784, attack=0.04, curve=3.5, ratio=1.41, index=1.3), 0.0, 0.45)   # ファン（下がる）
-    _mix(out, _breath(0.4, 3000, 300, attack=0.05, curve=4, seed=13), 0.0, 0.35)    # フゥッと消える
+    _chord(out, 0.0, 0.8, CHORD[1:3], (0.38, 0.24), glide=0.94, attack=0.05, curve=3.4)
+    _mix(out, _breath(0.55, 4000, 300, attack=0.06, curve=4, seed=13), 0.0, 0.3)
+    _mix(out, _tone(0.6, 165, 110, attack=0.05, curve=3.5, detune=12, fixed=True), 0.05, 0.22)
     return out
 
 
 def listen() -> list[float]:
+    """耳を澄ます：短く息を吸い、低い2音がそっと開く"""
     out: list[float] = []
-    _mix(out, _bloom(0.22, 1568, attack=0.03, curve=4, ratio=1.41, index=1.0, open_at=0.2, air=0.25), 0.0, 0.45)
-    _mix(out, _bloom(0.3, 2349, attack=0.035, curve=4, ratio=1.41, index=1.0, open_at=0.2, air=0.25), 0.1, 0.4)
+    _mix(out, _breath(0.22, 400, 2500, attack=0.14, curve=5, seed=21), 0.0, 0.3)
+    _chord(out, 0.08, 0.42, (CHORD[0], CHORD[1]), (0.4, 0.28), glide=1.0, attack=0.05, curve=3.5)
     return out
 
 
 def ack() -> list[float]:
+    """受け取った：上の2音が小さく開き、遠くでデータの粒が少し走る"""
     out: list[float] = []
-    for k, f in enumerate((2093, 2637, 3136)):  # やわらかい3つの粒（処理を始めた合図）
-        _mix(out, _bloom(0.16, f, attack=0.02, curve=5, ratio=2.76, index=0.8, open_at=0.2, air=0.15), 0.045 * k, 0.3)
+    _chord(out, 0.0, 0.45, (CHORD[2], CHORD[3]), (0.32, 0.18), glide=1.0, attack=0.04, curve=4)
+    _mix(out, _lowpass(_data(0.2, 1800, 3400, step=(0.025, 0.04), seed=22, crush=False), 2500), 0.06, 0.1)
     return out
 
 
