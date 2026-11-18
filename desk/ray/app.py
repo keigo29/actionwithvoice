@@ -193,7 +193,7 @@ class Assistant:
                 return
             text = self.deck[i].speech
             if budget is not None and text:
-                text = budget.take(text)
+                text = budget.take(text, opener_ok=False)  # 場面の文は全部数える
                 if not text:
                     return  # 3文を話し終えた。残りの場面は「次」で
             self.pos = i

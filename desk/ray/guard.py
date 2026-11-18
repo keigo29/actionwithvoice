@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 
 MAX_SENTENCES = 3
+OPENER_MAX = 12  # この字数までのひとことは、最初の1回だけ数えない
 
 # 英語の名前の読み方（長いものから順に置き換える）
 READINGS = {
@@ -121,13 +122,19 @@ class Budget:
     def __init__(self, limit: int = MAX_SENTENCES):
         self.left = limit
         self.rest: list[str] = []
+        self.opened = False
 
     @property
     def overflow(self) -> bool:
         return bool(self.rest)
 
-    def take(self, text: str) -> str:
+    def take(self, text: str, opener_ok: bool = True) -> str:
         s = sentences(text)
+        # 作業の前の「調べます」のような短いひとことは、3文に数えない（最初の1回だけ）
+        if opener_ok and not self.opened and len(s) == 1 and len(s[0]) <= OPENER_MAX:
+            self.opened = True
+            return s[0]
+        self.opened = True
         keep = s[: max(self.left, 0)]
         self.rest += s[len(keep):]
         self.left -= len(keep)

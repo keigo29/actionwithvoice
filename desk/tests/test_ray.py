@@ -377,6 +377,8 @@ class GuardTest(unittest.TestCase):
     def test_budget(self):
         from ray.guard import Budget, join
         b = Budget(3)
+        self.assertEqual(b.take("調べます。"), "調べます。")  # 最初の短いひとことは数えない
+        self.assertEqual(b.left, 3)
         self.assertEqual(b.take("一。二？"), "一。二？")
         self.assertEqual(b.take("三。四。"), "三。")
         self.assertEqual(b.take("五。"), "")
