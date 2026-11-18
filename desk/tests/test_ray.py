@@ -333,3 +333,28 @@ class ConfigTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VoicePromptTest(unittest.TestCase):
+    """話し方の決まり（3文まで・記号なし・日本語だけ）が、画面の決まりとぶつからないこと"""
+
+    def test_voice_rules(self):
+        p = brain.VOICE_PROMPT
+        self.assertIn("全部で3文まで", p)
+        self.assertIn("使ってよい記号は「、」「。」「？」だけ", p)
+        self.assertIn("アルファベットは一文字も書かない", p)
+        self.assertIn("コマンド（Cmd）", p)
+
+    def test_screen_rules_fit_three_sentences(self):
+        p = brain.SCREEN_PROMPT
+        self.assertIn("場面は多くて3つ", p)
+        self.assertIn("話す文を足して3文まで", p)
+        self.assertNotIn("多くて6つ", p)
+        self.assertNotIn("1〜2文", p)
+        self.assertNotIn("todos(due_within 3) → habits", p)
+
+    def test_prompt_is_sent(self):
+        cmd = brain.build_command(cfg())
+        sent = cmd[cmd.index("--append-system-prompt") + 1]
+        self.assertIn("全部で3文まで", sent)
+        self.assertIn("場面は多くて3つ", sent)
