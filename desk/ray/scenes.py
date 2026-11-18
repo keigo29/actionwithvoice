@@ -15,6 +15,8 @@ import json
 import re
 from dataclasses import dataclass, field
 
+from . import guard
+
 DIRECTIVE_RE = re.compile(r"^\s*[@＠](?:画面|screen)\s+([^\s{]+)\s*(\{.*\})?\s*$", re.I)
 
 
@@ -44,7 +46,7 @@ def parse(text: str) -> list[Scene]:
                 params = {}
             cur = Scene(kind=m[1], params=params if isinstance(params, dict) else {})
         elif line.strip():
-            cur.speech = (cur.speech + " " + line.strip()).strip()
+            cur.speech = guard.join([cur.speech, line])
     if cur.speech.strip() or cur.kind:
         scenes.append(cur)
     return scenes
@@ -52,4 +54,4 @@ def parse(text: str) -> list[Scene]:
 
 def strip_directives(text: str) -> str:
     """ログや読み上げ用に、指示の行を消した文"""
-    return " ".join(l.strip() for l in text.splitlines() if l.strip() and not DIRECTIVE_RE.match(l)).strip()
+    return guard.join(l for l in text.splitlines() if l.strip() and not DIRECTIVE_RE.match(l))

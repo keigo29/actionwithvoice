@@ -12,7 +12,8 @@ JST = timezone(timedelta(hours=9))
 _lock = threading.Lock()
 
 
-def write_qa(cmd_dir: str | Path, question: str, answer: str, now: datetime | None = None) -> Path:
+def write_qa(cmd_dir: str | Path, question: str, answer: str, now: datetime | None = None,
+             extra: dict | None = None) -> Path:
     now = (now or datetime.now(JST)).astimezone(JST)
     folder = Path(cmd_dir) / "Data" / "voice"
     folder.mkdir(parents=True, exist_ok=True)
@@ -23,6 +24,8 @@ def write_qa(cmd_dir: str | Path, question: str, answer: str, now: datetime | No
         path = folder / f"{stamp}-{n}.json"
         n += 1
     record = {"datetime": now.isoformat(timespec="seconds"), "question": question, "answer": answer, "via": "desk"}
+    # raw：画面の指示行も含めた Claude の返事そのまま。trimmed：3文を超えて途中で止めた
+    record.update({k: v for k, v in (extra or {}).items() if v})
     path.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return path
 
@@ -46,13 +49,13 @@ def push(cmd_dir: str | Path, path: Path, run=subprocess.run) -> bool:
         return False
 
 
-def log_async(cfg: dict, question: str, answer: str) -> None:
+def log_async(cfg: dict, question: str, answer: str, extra: dict | None = None) -> None:
     if not cfg["log"]["enabled"]:
         return
 
     def work():
         try:
-            p = write_qa(cfg["cmd_dir"], question, answer)
+            p = write_qa(cfg["cmd_dir"], question, answer, extra=extra)
             if cfg["log"]["push"] and not push(cfg["cmd_dir"], p):
                 print(f"ログの push に失敗しました（あとで Cmd で push してください）：{p.name}")
         except Exception as e:  # ログの失敗で会話は止めない

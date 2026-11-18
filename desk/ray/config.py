@@ -36,6 +36,8 @@ DEFAULTS: dict = {
     # 天気の場所（open-meteo）
     "weather": {"place": "横浜", "latitude": 35.44, "longitude": 139.64},
     "log": {"enabled": True, "push": True},
+    # 効果音（起動・画面を開く／閉じる・聞き取り開始・聞き取れた）。Mac の afplay で鳴らす
+    "sfx": {"enabled": True, "volume": 0.5, "pitch": 0.5},
 }
 
 

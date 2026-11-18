@@ -14,12 +14,14 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import webbrowser
 from pathlib import Path
 
 from . import config as config_mod
 from .app import Assistant
 from .brain import Brain
+from .sfx import Sfx
 from .speech import Speaker
 from .ui import StateHub, serve
 
@@ -65,7 +67,8 @@ def run(cfg: dict, use_ui: bool) -> None:
 
     hub = StateHub()
     speaker = Speaker(cfg)
-    assistant = Assistant(cfg, Brain(cfg), speaker, hub)
+    sfx = Sfx(cfg)
+    assistant = Assistant(cfg, Brain(cfg), speaker, hub, sfx=sfx)
     if use_ui and cfg["ui"]["enabled"]:
         serve(hub, cfg["ui"]["port"])
         url = f"http://localhost:{cfg['ui']['port']}/"
@@ -99,6 +102,8 @@ def run(cfg: dict, use_ui: bool) -> None:
             assistant.submit_audio(recorder.stop())
 
     print(f"「{cfg['hotkey']}」キーを押している間に話してください（終わるときは Ctrl+C）")
+    sfx.play("boot", wait=3)  # 起動の音（作り終わるのを少しだけ待つ）
+    time.sleep(1.2)           # 和音が開いたところで名乗る
     speaker.say("レイです。どうぞ")
     with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
         try:
