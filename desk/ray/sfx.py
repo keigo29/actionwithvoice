@@ -39,7 +39,7 @@ import wave
 from pathlib import Path
 
 RATE = 44100
-VERSION = 5  # 音の作り方を変えたら上げる（取っておいた音を作り直す）
+VERSION = 6  # 音の作り方を変えたら上げる（取っておいた音を作り直す）
 PITCH = 0.5  # 音の高さの倍率（0.5 で1オクターブ下）。config の sfx.pitch で変えられる
 _pitch = PITCH
 NAMES = ("boot", "open", "close", "listen", "ack")
@@ -347,46 +347,96 @@ def boot() -> list[float]:
     return out
 
 
-# 起動以外は、0.5 秒で終わるさりげない「ピョン」。起動と同じ材料（ちらつく FM のガラス・息・響き）を、
-# ごく短く・高すぎない高さ（実際の高さで 330〜660 Hz）で使う。高さは起動の和音（ラ・ミ）から選ぶ
+# 起動以外は、0.5 秒で終わるさりげない音。楽器のように「音符から音符へ」跳ねると近未来感が消えるので、
+# 決まった高さを持たない音で作る：
+#   ・響きの強いフィルターが、息（ノイズ）と金属的な FM の混ざった音を一気に通り過ぎる（「フィッ」）
+#   ・リングモジュレーションで、少しだけ金属のざらつき
+#   ・左から右へ（閉じるときは右から左へ）音が動く
+#   ・起動と同じ、遠くのデータの粒とゆらぎ
+# 高すぎないよう、フィルターの行き先は 2 kHz 前後までにし、全体の高いところも削る
 
-def _pyon(f0, f1, dur=0.24, attack=0.025, amp=1.0, air=0.18) -> list[float]:
-    """ピョン：丸く立ち上がって、すっと高さが跳ねる短い音"""
-    return _bloom(dur, f0, f1, attack=attack, curve=4.5, ratio=1.41, index=1.0, open_at=0.15, detune=6,
-                  air=air, trem=7, trem_depth=0.12)
+def _fwip(dur, f0, f1, q=6.0, attack=0.02, curve=4.0, noise=0.6, ring=90.0, ring_mix=0.3, shape=0.5,
+          seed=0) -> list[float]:
+    """フィッ：共鳴フィルター（f0→f1、決まった高さを持たない）を、ノイズと FM の混ざった音に通す。
+    shape が小さいほど、最初に速く動いてあとはゆっくり（すっと抜ける感じ）"""
+    rnd = random.Random(seed)
+    n = _n(dur)
+    env = _swell(n, attack, curve)
+    low = band = 0.0
+    pc = pm = 0.0
+    out = []
+    for i in range(n):
+        t = i / max(1, n - 1)
+        f = f0 * (f1 / f0) ** (t ** shape)
+        # 音のもと：ノイズと、フィルターの少し下で鳴る、整数でない倍音の FM
+        pm += TAU * f * 0.5 * 2.76 / RATE
+        pc += TAU * f * 0.5 / RATE
+        src = noise * rnd.uniform(-1, 1) + (1 - noise) * math.sin(pc + 2.0 * math.sin(pm))
+        k = 2 * math.sin(math.pi * min(f, RATE / 6) / RATE)
+        low += k * band
+        band += k * (src - low - band / q)
+        v = band * (1 - ring_mix + ring_mix * math.sin(TAU * ring * i / RATE))  # リングモジュレーション
+        out.append(v * env[i])
+    return _lowpass(out, 4000)
+
+
+def _grains(dur, n_grains, lo, hi, seed=0) -> list[float]:
+    """起動と同じ、遠くのデータの粒（やわらかく）"""
+    out: list[float] = []
+    rnd = random.Random(seed)
+    for k in range(n_grains):
+        f = rnd.uniform(lo, hi)
+        g = _bloom(0.05, f, f * rnd.uniform(0.9, 1.15), attack=0.02, curve=6, ratio=2.76, index=1.2, air=0.3,
+                   fixed=True, open_at=0.2)
+        _mix(out, g, dur * k / max(1, n_grains), rnd.uniform(0.6, 1.0))
+    return _lowpass(out, 3000)
 
 
 def open_() -> list[float]:
-    """画面を開く：ラ→ミへ上がるピョン"""
+    """画面を開く：フィッと上へ抜け、遠くで粒がこぼれる。音は左から右へ"""
     out: list[float] = []
-    _mix(out, _pyon(880, 1318.5), 0.0, 0.6)
-    _mix(out, _breath(0.18, 600, 2400, attack=0.05, curve=5, seed=11), 0.0, 0.12)
+    _mix(out, _fwip(0.26, 260, 1900, q=7, attack=0.03, curve=4, seed=11), 0.0, 1.0)
+    _mix(out, _grains(0.12, 3, 1200, 2200, seed=12), 0.12, 0.25)
     return out
 
 
 def close() -> list[float]:
-    """画面を閉じる：ミ→ラへ下がるピョン"""
+    """画面を閉じる：フィッと下へ沈む。音は右から左へ"""
     out: list[float] = []
-    _mix(out, _pyon(1318.5, 880), 0.0, 0.6)
-    _mix(out, _breath(0.18, 2400, 600, attack=0.03, curve=5, seed=13), 0.0, 0.1)
+    _mix(out, _fwip(0.26, 1900, 240, q=7, attack=0.02, curve=4, shape=0.6, seed=13), 0.0, 1.0)
     return out
 
 
 def listen() -> list[float]:
-    """聞き始め：低めのミ→ラへ、小さく上がるピョン"""
+    """聞き始め：小さく息を吸うような、短いフィッ（上へ）"""
     out: list[float] = []
-    _mix(out, _pyon(659.3, 880, dur=0.2), 0.0, 0.55)
+    _mix(out, _fwip(0.18, 400, 1300, q=5, attack=0.035, curve=4.5, noise=0.75, ring_mix=0.2, seed=21), 0.0, 1.0)
     return out
 
 
 def ack() -> list[float]:
-    """聞き取れた：ラから少しだけ上がる、いちばん小さなピョン"""
+    """聞き取れた：遠くでデータの粒が3つ走る（処理を始めた合図）"""
     out: list[float] = []
-    _mix(out, _pyon(880, 1046.5, dur=0.16, attack=0.032, air=0.1), 0.0, 0.5)
+    _mix(out, _grains(0.13, 3, 1000, 1800, seed=22), 0.01, 1.0)
     return out
 
 
 SOUNDS = {"boot": boot, "open": open_, "close": close, "listen": listen, "ack": ack}
+PAN = {"open": (-0.6, 0.6, 0.3), "close": (0.6, -0.6, 0.3)}  # 名前 → (始めの位置, 終わりの位置, 動く秒数)。-1 が左
+
+
+def _pan(left, right, p0, p1, dur):
+    """音を左右に動かす（-1 が左、1 が右）"""
+    n = _n(dur)
+    out_l, out_r = [], []
+    for i, (l, r) in enumerate(zip(left, right)):
+        p = p0 + (p1 - p0) * min(1.0, i / n)
+        a = (p + 1) * math.pi / 4
+        out_l.append(l * math.cos(a) * 1.41)
+        out_r.append(r * math.sin(a) * 1.41)
+    return out_l, out_r
+
+
 PEAK_DB = {"open": -9.0, "close": -10.0, "listen": -10.0, "ack": -12.0}  # 起動以外はさりげなく（小さめ）
 SPACE = {  # 名前 → (残りの響きの長さ, ディレイの量, リバーブの量)
     "boot": (1.0, 0.3, 0.45), "open": (0.24, 0.12, 0.16), "close": (0.24, 0.12, 0.16),
@@ -403,6 +453,8 @@ def render(folder: Path, pitch: float = PITCH) -> dict[str, Path]:
     for name, make in SOUNDS.items():
         tail, wet, verb = SPACE[name]
         left, right = _space(make(), tail, wet=wet, verb=verb)
+        if name in PAN:
+            left, right = _pan(left, right, *PAN[name])
         paths[name] = _write(folder / f"{name}.wav", left, right, peak_db=PEAK_DB.get(name, -3.0))
     return paths
 
