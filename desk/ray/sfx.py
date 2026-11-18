@@ -16,6 +16,9 @@ SF らしさを作っている要素（映画の HUD の録画の分析と、こ
   9 グリッチ                       … ごく短い切れ端を3回くり返す
  10 空間に投影された広がり         … 左右に跳ねるディレイと、残響（リバーブ）
 
+グリッチ（起動以外の短い音）：同じ切れ端のくり返し・一瞬の途切れ・一瞬のデジタルの粗さ・逆再生・
+テープが止まるような速度の落ち方。切れ目は数ミリ秒でなめらかにつなぎ、「カチッ」にしない。
+
 音の手ざわりは「カチッ」ではなく「ファン」：立ち上がりを丸くし、明るさがふくらんでから閉じ、
 息の音を重ね、高いところを削り、残響を多めにする（_bloom・_breath）。7 と 9 は今は使っていない。
 
@@ -39,7 +42,7 @@ import wave
 from pathlib import Path
 
 RATE = 44100
-VERSION = 6  # 音の作り方を変えたら上げる（取っておいた音を作り直す）
+VERSION = 7  # 音の作り方を変えたら上げる（取っておいた音を作り直す）
 PITCH = 0.5  # 音の高さの倍率（0.5 で1オクターブ下）。config の sfx.pitch で変えられる
 _pitch = PITCH
 NAMES = ("boot", "open", "close", "listen", "ack")
@@ -392,32 +395,106 @@ def _grains(dur, n_grains, lo, hi, seed=0) -> list[float]:
     return _lowpass(out, 3000)
 
 
+# ---------------------------------------------------------------- グリッチ（壊れかけたデジタルの感じ）
+# どれも切れ目を数ミリ秒でなめらかにつなぎ、「カチッ」にならないようにする
+
+def _fade_edges(seg: list[float], ms: float = 3.0) -> list[float]:
+    f = max(1, _n(ms / 1000))
+    out = list(seg)
+    for i in range(min(f, len(out))):
+        g = i / f
+        out[i] *= g
+        out[-1 - i] *= g
+    return out
+
+
+def _g_repeat(src, at, length, times):
+    """同じ切れ端をくり返す（どもる）"""
+    s, ln = _n(at), _n(length)
+    piece = _fade_edges(src[s:s + ln])
+    return src[:s] + piece * times + src[s + ln:]
+
+
+def _g_drop(src, at, length):
+    """一瞬だけ音が途切れる"""
+    s, ln, f = _n(at), _n(length), _n(0.003)
+    out = list(src)
+    for i in range(s, min(len(out), s + ln)):
+        d = min(i - s, s + ln - i)
+        out[i] *= 1 - min(1.0, d / f)
+    return out
+
+
+def _g_crush(src, at, length, bits=4, hold=12):
+    """一瞬だけデジタルが粗くなる（ビットクラッシュとサンプルレートの低下）"""
+    s, ln = _n(at), _n(length)
+    seg = _lowpass(_crush(src[s:s + ln], bits, hold), 5000)  # 粗くしても、耳に刺さらないよう少し削る
+    f = max(1, _n(0.004))
+    out = list(src)
+    for i, v in enumerate(seg):
+        if s + i >= len(out):
+            break
+        w = min(1.0, i / f, (len(seg) - i) / f)
+        out[s + i] = out[s + i] * (1 - w) + v * w
+    return out
+
+
+def _g_reverse(src, at, length):
+    """切れ端を逆さに再生する"""
+    s, ln = _n(at), _n(length)
+    piece = _fade_edges(src[s:s + ln][::-1])
+    return src[:s] + piece + src[s + ln:]
+
+
+def _g_speed(src, at, length, start=1.0, end=0.3):
+    """速度がずれる（テープが止まるように、だんだん遅く・低く）"""
+    s, ln = _n(at), _n(length)
+    seg = src[s:s + ln]
+    out_seg, pos = [], 0.0
+    while pos < len(seg) - 1:
+        t = len(out_seg) / max(1, ln)
+        rate = start + (end - start) * min(1.0, t)
+        i = int(pos)
+        frac = pos - i
+        out_seg.append(seg[i] * (1 - frac) + seg[i + 1] * frac)
+        pos += rate
+    return src[:s] + _fade_edges(out_seg, 5) + src[s + ln:]
+
+
 def open_() -> list[float]:
-    """画面を開く：フィッと上へ抜け、遠くで粒がこぼれる。音は左から右へ"""
+    """画面を開く：フィッと上へ抜ける途中で一瞬どもり、粗くなってから、粒がこぼれる。音は左から右へ"""
     out: list[float] = []
-    _mix(out, _fwip(0.26, 260, 1900, q=7, attack=0.03, curve=4, seed=11), 0.0, 1.0)
-    _mix(out, _grains(0.12, 3, 1200, 2200, seed=12), 0.12, 0.25)
+    _mix(out, _fwip(0.22, 260, 1900, q=7, attack=0.03, curve=4, seed=11), 0.0, 1.0)
+    _mix(out, _grains(0.1, 3, 1200, 2200, seed=12), 0.11, 0.25)
+    out = _g_repeat(out, 0.085, 0.016, 3)   # どもる
+    out = _g_crush(out, 0.16, 0.04)         # 一瞬粗くなる
     return out
 
 
 def close() -> list[float]:
-    """画面を閉じる：フィッと下へ沈む。音は右から左へ"""
+    """画面を閉じる：フィッと下へ沈みながら途切れ、最後はテープが止まるように落ちる。音は右から左へ"""
     out: list[float] = []
-    _mix(out, _fwip(0.26, 1900, 240, q=7, attack=0.02, curve=4, shape=0.6, seed=13), 0.0, 1.0)
+    _mix(out, _fwip(0.19, 1900, 300, q=7, attack=0.02, curve=3.5, shape=0.6, seed=13), 0.0, 1.0)
+    out = _g_drop(out, 0.06, 0.016)         # 途切れる
+    out = _g_drop(out, 0.095, 0.012)
+    out = _g_speed(out, 0.115, 0.07, 1.0, 0.35)  # 止まるように落ちる
     return out
 
 
 def listen() -> list[float]:
-    """聞き始め：小さく息を吸うような、短いフィッ（上へ）"""
+    """聞き始め：息を吸うような短いフィッの最後が、小さくどもる"""
     out: list[float] = []
-    _mix(out, _fwip(0.18, 400, 1300, q=5, attack=0.035, curve=4.5, noise=0.75, ring_mix=0.2, seed=21), 0.0, 1.0)
+    _mix(out, _fwip(0.15, 400, 1300, q=5, attack=0.035, curve=4.5, noise=0.75, ring_mix=0.2, seed=21), 0.0, 1.0)
+    out = _g_repeat(out, 0.07, 0.014, 3)
     return out
 
 
 def ack() -> list[float]:
-    """聞き取れた：遠くでデータの粒が3つ走る（処理を始めた合図）"""
+    """聞き取れた：データの粒が走り、その一つが逆さに戻って、粗いデジタルの尾を引く"""
     out: list[float] = []
-    _mix(out, _grains(0.13, 3, 1000, 1800, seed=22), 0.01, 1.0)
+    _mix(out, _grains(0.12, 3, 1000, 1800, seed=22), 0.01, 1.0)
+    out = _g_reverse(out, 0.05, 0.03)
+    out = _g_crush(out, 0.1, 0.05, bits=5, hold=8)
     return out
 
 
