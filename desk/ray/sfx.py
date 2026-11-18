@@ -42,7 +42,7 @@ import wave
 from pathlib import Path
 
 RATE = 44100
-VERSION = 7  # 音の作り方を変えたら上げる（取っておいた音を作り直す）
+VERSION = 8  # 音の作り方を変えたら上げる（取っておいた音を作り直す）
 PITCH = 0.5  # 音の高さの倍率（0.5 で1オクターブ下）。config の sfx.pitch で変えられる
 _pitch = PITCH
 NAMES = ("boot", "open", "close", "listen", "ack")
@@ -358,7 +358,7 @@ def boot() -> list[float]:
 #   ・起動と同じ、遠くのデータの粒とゆらぎ
 # 高すぎないよう、フィルターの行き先は 2 kHz 前後までにし、全体の高いところも削る
 
-def _fwip(dur, f0, f1, q=6.0, attack=0.02, curve=4.0, noise=0.6, ring=90.0, ring_mix=0.3, shape=0.5,
+def _fwip(dur, f0, f1, q=6.0, attack=0.02, curve=4.0, noise=0.25, ring=90.0, ring_mix=0.3, shape=0.5,
           seed=0) -> list[float]:
     """フィッ：共鳴フィルター（f0→f1、決まった高さを持たない）を、ノイズと FM の混ざった音に通す。
     shape が小さいほど、最初に速く動いてあとはゆっくり（すっと抜ける感じ）"""
@@ -389,7 +389,7 @@ def _grains(dur, n_grains, lo, hi, seed=0) -> list[float]:
     rnd = random.Random(seed)
     for k in range(n_grains):
         f = rnd.uniform(lo, hi)
-        g = _bloom(0.05, f, f * rnd.uniform(0.9, 1.15), attack=0.02, curve=6, ratio=2.76, index=1.2, air=0.3,
+        g = _bloom(0.05, f, f * rnd.uniform(0.9, 1.15), attack=0.02, curve=6, ratio=2.76, index=1.2, air=0.08,
                    fixed=True, open_at=0.2)
         _mix(out, g, dur * k / max(1, n_grains), rnd.uniform(0.6, 1.0))
     return _lowpass(out, 3000)
@@ -467,7 +467,7 @@ def open_() -> list[float]:
     _mix(out, _fwip(0.22, 260, 1900, q=7, attack=0.03, curve=4, seed=11), 0.0, 1.0)
     _mix(out, _grains(0.1, 3, 1200, 2200, seed=12), 0.11, 0.25)
     out = _g_repeat(out, 0.085, 0.016, 3)   # どもる
-    out = _g_crush(out, 0.16, 0.04)         # 一瞬粗くなる
+    out = _g_crush(out, 0.16, 0.04, bits=5, hold=8)  # 一瞬粗くなる
     return out
 
 
@@ -484,7 +484,7 @@ def close() -> list[float]:
 def listen() -> list[float]:
     """聞き始め：息を吸うような短いフィッの最後が、小さくどもる"""
     out: list[float] = []
-    _mix(out, _fwip(0.15, 400, 1300, q=5, attack=0.035, curve=4.5, noise=0.75, ring_mix=0.2, seed=21), 0.0, 1.0)
+    _mix(out, _fwip(0.15, 400, 1300, q=5, attack=0.035, curve=4.5, noise=0.3, ring_mix=0.2, seed=21), 0.0, 1.0)
     out = _g_repeat(out, 0.07, 0.014, 3)
     return out
 
