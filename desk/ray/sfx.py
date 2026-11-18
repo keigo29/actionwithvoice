@@ -42,7 +42,7 @@ import wave
 from pathlib import Path
 
 RATE = 44100
-VERSION = 9  # 音の作り方を変えたら上げる（取っておいた音を作り直す）
+VERSION = 10  # 音の作り方を変えたら上げる（取っておいた音を作り直す）
 PITCH = 0.5  # 音の高さの倍率（0.5 で1オクターブ下）。config の sfx.pitch で変えられる
 _pitch = PITCH
 NAMES = ("boot", "open", "close", "listen", "ack")
@@ -383,12 +383,14 @@ def _fwip(dur, f0, f1, q=6.0, attack=0.02, curve=4.0, noise=0.25, ring=90.0, rin
     return _lowpass(out, 4000)
 
 
-def _grains(dur, n_grains, lo, hi, seed=0) -> list[float]:
-    """起動と同じ、遠くのデータの粒（やわらかく）"""
+def _grains(dur, n_grains, lo, hi, seed=0, order: str | None = None) -> list[float]:
+    """起動と同じ、遠くのデータの粒（やわらかく）。order が "up" なら低い粒から高い粒へ、"down" ならその逆"""
     out: list[float] = []
     rnd = random.Random(seed)
+    if order:
+        fs = sorted((rnd.uniform(lo, hi) for _ in range(n_grains)), reverse=(order == "down"))
     for k in range(n_grains):
-        f = rnd.uniform(lo, hi)
+        f = fs[k] if order else rnd.uniform(lo, hi)
         g = _bloom(0.05, f, f * rnd.uniform(0.9, 1.15), attack=0.02, curve=6, ratio=2.76, index=1.2, air=0.08,
                    fixed=True, open_at=0.2)
         _mix(out, g, dur * k / max(1, n_grains), rnd.uniform(0.6, 1.0))
@@ -461,34 +463,44 @@ def _g_speed(src, at, length, start=1.0, end=0.3):
     return src[:s] + _fade_edges(out_seg, 5) + src[s + ln:]
 
 
-# 起動以外の4つは、「聞き始め」をお手本にそろえる：
-#   芯のある短いフィッ（息は3割）＋ グリッチはどもり1回だけ。向き（上・下）と長さ・幅で区別する
+# 起動以外の4つは、「聞き取れた」をお手本にそろえる：
+#   データの粒が走り、その一つが逆さに戻って、粗いデジタルの尾を引く。
+#   粒の並び（上がる・下がる）と数・速さで区別する
 
-def _cue(dur, f0, f1, stutter_at, stutter_len=0.014, times=3, shape=0.5, noise=0.3, seed=0) -> list[float]:
-    """お手本（聞き始め）と同じ作りの音：フィッ＋最後の小さなどもり"""
+def ack() -> list[float]:
+    """聞き取れた（お手本）：データの粒が走り、その一つが逆さに戻って、粗いデジタルの尾を引く"""
     out: list[float] = []
-    _mix(out, _fwip(dur, f0, f1, q=5, attack=0.035, curve=4.5, noise=noise, ring_mix=0.2, shape=shape, seed=seed), 0.0, 1.0)
-    return _g_repeat(out, stutter_at, stutter_len, times)
+    _mix(out, _grains(0.12, 3, 1000, 1800, seed=22), 0.01, 1.0)
+    out = _g_reverse(out, 0.05, 0.03)
+    out = _g_crush(out, 0.1, 0.05, bits=5, hold=8)
+    return out
 
 
 def listen() -> list[float]:
-    """聞き始め（お手本）：息を吸うような短いフィッの最後が、小さくどもる"""
-    return _cue(0.15, 400, 1300, 0.07, seed=21)
+    """聞き始め：2つの粒が上がり、2つ目が逆さに戻る（お手本より短く、軽く）"""
+    out: list[float] = []
+    _mix(out, _grains(0.07, 2, 800, 1500, seed=21, order="up"), 0.01, 1.0)
+    out = _g_reverse(out, 0.045, 0.025)
+    out = _g_crush(out, 0.075, 0.035, bits=5, hold=8)
+    return out
 
 
 def open_() -> list[float]:
-    """画面を開く：お手本より少し長く、広く上へ。音は左から右へ"""
-    return _cue(0.18, 330, 1600, 0.085, seed=11)
+    """画面を開く：4つの粒が下から上へ走り、最後の一つが逆さに戻って、粗い尾を引く。音は左から右へ"""
+    out: list[float] = []
+    _mix(out, _grains(0.16, 4, 900, 2000, seed=11, order="up"), 0.01, 1.0)
+    out = _g_reverse(out, 0.13, 0.03)
+    out = _g_crush(out, 0.17, 0.05, bits=5, hold=8)
+    return out
 
 
 def close() -> list[float]:
-    """画面を閉じる：お手本を下向きに。音は右から左へ"""
-    return _cue(0.17, 1500, 330, 0.08, shape=0.6, seed=13)
-
-
-def ack() -> list[float]:
-    """聞き取れた：いちばん短く狭いフィッ。どもりは2回"""
-    return _cue(0.1, 650, 1150, 0.045, stutter_len=0.012, times=2, noise=0.18, seed=22)
+    """画面を閉じる：4つの粒が上から下へ走り、最後の一つが逆さに戻って、粗い尾を引く。音は右から左へ"""
+    out: list[float] = []
+    _mix(out, _grains(0.16, 4, 800, 1900, seed=13, order="down"), 0.01, 1.0)
+    out = _g_reverse(out, 0.13, 0.03)
+    out = _g_crush(out, 0.17, 0.05, bits=5, hold=8)
+    return out
 
 
 SOUNDS = {"boot": boot, "open": open_, "close": close, "listen": listen, "ack": ack}
