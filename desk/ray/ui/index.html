@@ -69,6 +69,9 @@
   .hud .inglow { opacity: calc(.2 + .3 * var(--glow)); transition: opacity .6s ease; }
   .hud[data-state="speaking"] .inglow { animation: shine 1.8s ease-in-out infinite alternate; }
   .hud[data-state="speaking"] .halo { animation: haloShine 1.8s ease-in-out infinite alternate; }
+  /* 声の大きさが届いているとき：発音のたびに内側が光る（--voice は 0〜1。JS が毎フレーム入れる） */
+  .hud[data-state="speaking"].voiced .inglow { animation: none; opacity: calc(.3 + .7 * var(--voice, 0)); transition: none; }
+  .hud[data-state="speaking"].voiced .halo { animation: none; opacity: calc(.55 + .45 * var(--voice, 0)); }
   @keyframes shine { from { opacity: .45; } to { opacity: 1; } }
   @keyframes haloShine { from { opacity: .6; } to { opacity: 1; } }
 
@@ -504,10 +507,37 @@ function setStage(on) {
   }
 }
 
+/* ---------- 発音に合わせて内側を光らせる ---------- */
+// Ray は鳴らし始めに、声の大きさの並び（step ミリ秒ごと、0〜1）を送ってくる。届いた時から並びをなぞる
+let voice = null, voiceId = 0, voiceT0 = 0, voiceLevel = 0, speaking = false;
+function voiceFrame(now) {
+  let v = 0;
+  if (voice && speaking) {
+    const i = Math.floor((now - voiceT0) / voice.step);
+    v = voice.env[i] || 0;
+  }
+  voiceLevel = Math.max(v, voiceLevel * .82);   // 立ち上がりは速く、消えるのはなめらかに
+  for (const id of ["orb", "orb2"]) {
+    const el = $(id);
+    el.style.setProperty("--voice", voiceLevel.toFixed(3));
+    el.classList.toggle("voiced", !!voice && speaking);
+  }
+  requestAnimationFrame(voiceFrame);
+}
+requestAnimationFrame(voiceFrame);
+function takeVoice(s) {
+  speaking = s.state === "speaking";
+  if (!speaking) { voice = null; return; }
+  if (s.voice && s.voice.id !== voiceId) {
+    voiceId = s.voice.id; voice = s.voice; voiceT0 = performance.now();
+  }
+}
+
 /* ---------- 状態を受け取る ---------- */
 let lastScene = "";
 function apply(s) {
   for (const id of ["orb", "orb2"]) $(id).dataset.state = s.state;
+  takeVoice(s);
   prevState = s.state;
   const lab = LABELS[s.state] || s.state;
   $("label").textContent = lab; $("label2").textContent = lab;

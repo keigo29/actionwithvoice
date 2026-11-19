@@ -13,6 +13,7 @@ whisper_cpp_model = "~/models/ggml-medium.bin"
 [tts]
 voice = "Kyoko"              # say -v '?' で一覧。システム設定で「Kyoko（拡張）」を入れると自然になる
 rate = 210
+lipsync = true               # 声の大きさに合わせて、画面の円の内側を光らせる（false で say に直接読み上げ）
 
 [claude]
 bin = "claude"

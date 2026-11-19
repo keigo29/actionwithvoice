@@ -226,7 +226,9 @@ def run(cfg: dict, use_ui: bool) -> None:
     log = start_log()
     hub = StateHub()
     log_states(hub)
-    speaker = Speaker(cfg)
+    # 鳴らし始めに、声の大きさの並びを画面へ送る（円の内側の光を発音に合わせて光らせる）
+    voice_no = iter(range(1, 10**9))
+    speaker = Speaker(cfg, on_voice=lambda env, step: hub.set(voice={"id": next(voice_no), "step": step, "env": env}))
     sfx = Sfx(cfg)
     assistant = Assistant(cfg, make_brain(cfg), speaker, hub, sfx=sfx)
     if use_ui and cfg["ui"]["enabled"]:

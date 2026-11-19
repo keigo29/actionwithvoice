@@ -337,7 +337,7 @@ class ConfigTest(unittest.TestCase):
             p = Path(d) / "c.toml"
             p.write_text('cmd_dir = "~/x"\n[tts]\nvoice = "Otoya"\n')
             c = config.load(p)
-            self.assertEqual(c["tts"], {"voice": "Otoya", "rate": 210})
+            self.assertEqual(c["tts"], {"voice": "Otoya", "rate": 210, "lipsync": True})
             self.assertTrue(c["cmd_dir"].endswith("/x") and not c["cmd_dir"].startswith("~"))
 
 
