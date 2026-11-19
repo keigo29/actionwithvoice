@@ -62,10 +62,15 @@
   .hud[data-state="confirm"]   { --speed: .9; --glow: .9; --neon: #ff2d55; --neon2: #ff7a95; }
   .hud[data-state="idle"] .core { animation: breathe 4.5s ease-in-out infinite; }
   .hud[data-state="listening"] .core { animation: pulse .9s ease-in-out infinite; }
-  .hud[data-state="speaking"] .core { animation: talk .38s ease-in-out infinite alternate; }
   .hud[data-state="confirm"] .core { animation: pulse 1.2s ease-in-out infinite; }
   .hud[data-state="thinking"] .seg { animation-duration: calc(4s / var(--speed)); }
-  .hud[data-state="listening"] .halo, .hud[data-state="speaking"] .halo { animation: pulse 1.4s ease-in-out infinite; }
+  .hud[data-state="listening"] .halo { animation: pulse 1.4s ease-in-out infinite; }
+  /* 話している間：弾ませず、円の内側のオレンジの光をゆっくり明るく・暗くする */
+  .hud .inglow { opacity: calc(.2 + .3 * var(--glow)); transition: opacity .6s ease; }
+  .hud[data-state="speaking"] .inglow { animation: shine 1.8s ease-in-out infinite alternate; }
+  .hud[data-state="speaking"] .halo { animation: haloShine 1.8s ease-in-out infinite alternate; }
+  @keyframes shine { from { opacity: .45; } to { opacity: 1; } }
+  @keyframes haloShine { from { opacity: .6; } to { opacity: 1; } }
 
   /* 待機中は横から見た形：同じ向きに傾けた輪を、傾きの軸に沿って一定の間隔で並べる（--ix・--iy）。呼ばれたら正面に向き直って1つにまとまる */
   .hud .layer { transform: none; opacity: 1;
@@ -90,7 +95,6 @@
   @keyframes rot { to { transform: rotate(360deg); } }
   @keyframes breathe { 50% { transform: scale(.94); opacity: .75; } }
   @keyframes pulse { 50% { transform: scale(1.08); } }
-  @keyframes talk { to { transform: scale(1.05, .96); } }
   .label { font-size: 15px; letter-spacing: .2em; color: var(--muted); }
   .text { max-width: 760px; text-align: center; font-size: 20px; line-height: 1.6; min-height: 3.2em; }
   .q { max-width: 720px; text-align: center; color: var(--muted); font-size: 14px; min-height: 1.4em; }
@@ -419,6 +423,7 @@ function dots(n, rMin, rMax, seed) {
   return o;
 }
 function buildHud(el, { name = true } = {}) {
+  const ig = `inglow-${el.id}`;  // 内側の光のグラデーション（円ごとに別の名前）
   // 1枚ずつ別の層にして、起動のときにそれぞれ違う角度から飛んでくる
   const L = (style, svg, cls = "") => `<div class="layer ${cls}" style="${style}">${svg}</div>`;
   el.innerHTML =
@@ -439,7 +444,10 @@ function buildHud(el, { name = true } = {}) {
         <circle cx="200" cy="200" r="120" fill="none" stroke="var(--ring)" stroke-width="1" opacity=".35"/></g>`)) +
     // ネオンの輪（待機中は、どの輪も同じ傾きで、軸に沿って一定の間隔に並ぶ）
     L("--d:0s;--ix:-4.8%;--iy:2.7%;--iz:-30deg;--iy3:62deg;--is:.66",
-      ringSvg(`<g class="core"><circle cx="200" cy="200" r="104" fill="rgba(11,13,18,.9)" stroke="var(--neon)" stroke-width="9"/>
+      ringSvg(`<defs><radialGradient id="${ig}"><stop offset="35%" stop-color="var(--neon)" stop-opacity="0"/>
+          <stop offset="78%" stop-color="var(--neon)" stop-opacity=".35"/><stop offset="100%" stop-color="var(--neon)" stop-opacity=".85"/></radialGradient></defs>
+        <g class="core"><circle cx="200" cy="200" r="104" fill="rgba(11,13,18,.9)" stroke="var(--neon)" stroke-width="9"/>
+        <circle class="inglow" cx="200" cy="200" r="100" fill="url(#${ig})"/>
         <circle cx="200" cy="200" r="92" fill="none" stroke="var(--neon2)" stroke-width="1.5" opacity=".7"/></g>`, "neon")) +
     // 浮かぶ点と十字
     L("--d:.24s;--ix:23.8%;--iy:-13.7%;--iz:-30deg;--iy3:62deg;--is:.66",
