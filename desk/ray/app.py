@@ -166,7 +166,8 @@ class Assistant:
         self.awaiting_confirm = (not res.is_error) and is_confirm(res.answer)
         self.log(self.cfg, question, res.answer,
                  extra={"raw": raw if raw.strip() != res.answer else "", "trimmed": budget.overflow,
-                        "brain": getattr(res, "by", ""), "rewrite": getattr(res, "rewrite", None)})
+                        "brain": getattr(res, "by", ""), "rewrite": getattr(res, "rewrite", None),
+                        "search": getattr(res, "search", None)})
         self.speaker.wait(timeout=120)
         extra = {}
         if self.awaiting_confirm:

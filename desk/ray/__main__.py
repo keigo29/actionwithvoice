@@ -69,6 +69,14 @@ def check(cfg: dict) -> bool:
         else:
             print("⚠️  Gemini の鍵がありません（Gemini の段は飛ばして Claude が答えます）"
                   " … AI Studio で課金なしのプロジェクトの鍵を作り、環境変数 GEMINI_API_KEY に入れる")
+    if cfg["search"]["enabled"]:
+        from .search import SearchBrain
+
+        if SearchBrain(cfg, None, None).key:
+            print(f"✅ 検索 API（{cfg['search']['provider']}）")
+        else:
+            print("⚠️  検索 API の鍵がありません（調べものは Gemini の検索 → Claude で答えます）"
+                  " … Tavily で鍵を作り、環境変数 TAVILY_API_KEY に入れる")
     line(bool(shutil.which("say")), "読み上げ（say）", "macOS で動かしてください")
     cmd = Path(cfg["cmd_dir"])
     line((cmd / ".git").exists(), f"Cmd のクローン（{cmd}）", "config.toml の cmd_dir を直す")

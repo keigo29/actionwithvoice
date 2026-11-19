@@ -30,6 +30,7 @@ from typing import Callable
 from . import visuals
 from .brain import Result
 from .rewrite import Rewriter, tidy
+from .search import SearchBrain
 
 JST = timezone(timedelta(hours=9))
 HANDOFF = "@クロード"
@@ -78,6 +79,14 @@ WORK_RE = re.compile(
 )
 # 調べもの：Gemini に Google 検索で答えさせる（だめなら Claude の WebSearch）
 SEARCH_RE = re.compile(r"調べ|検索|ググ|ニュース|最新|最近の|今年|値段|価格|いくら|店|レストラン|ウェブ|サイト|発売|営業時間", re.I)
+# 場所の言葉：「近くの家系ラーメン教えて」のように「調べて」と言わない店探しも、調べものとして扱う（足したルール）
+NEAR_RE = re.compile(r"近く|近所|この辺|このへん|周辺|駅前|駅の近く|最寄り")
+# 深い検索：いくつもの情報源を比べる・まとめる。これだけは、これまでどおり Gemini の検索か Claude へ
+# （ふだんの検索は、検索 API → 要約の受け皿（search.py）。Gemini の検索枠は温存する）
+DEEP_SEARCH_RE = re.compile(
+    r"比べ|比較|違い|どっちが|どちらが|どれが(?:いい|良い|おすすめ)|メリット|デメリット|長所|短所"
+    r"|徹底|網羅|いろいろ調べ|色々調べ|詳しく調べ|くわしく調べ|まとめて調べ|総合的|複数の"
+)
 # 体調・健康の記録：Ray が Cmd から読んでローカルに渡す（外には出さない）
 HEALTH_RES = {
     "body": re.compile(r"体重|気分|体調|健康|調子|太|痩|やせ|減量"),
@@ -234,7 +243,11 @@ def needs_claude(text: str) -> bool:
 
 
 def needs_search(text: str) -> bool:
-    return bool(SEARCH_RE.search(text))
+    return bool(SEARCH_RE.search(text) or NEAR_RE.search(text))
+
+
+def needs_deep_search(text: str) -> bool:
+    return bool(DEEP_SEARCH_RE.search(text))
 
 
 def health_kinds(text: str) -> list[str]:
@@ -445,13 +458,24 @@ class LocalBrain(_Cancelable):
         for q, a in history[-self.c["history"]:]:
             messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
         messages.append({"role": "user", "content": text})
-        body = {"model": self.c["model"], "stream": True, "keep_alive": self.c["keep_alive"],
+        return self._chat(messages, on_text, self.c["model"], self.c["timeout"], self.c["keep_alive"])
+
+    def summarize(self, model: str, system: str, text: str, on_text: Callable[[str], None],
+                  timeout: float = 90, keep_alive="5m") -> str | None:
+        """検索結果の要約（search.py の受け皿）。常駐の 7B とは別のモデル（14B）を、使うときだけ載せる"""
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": text}]
+        return self._chat(messages, on_text, model, timeout, keep_alive, mark_down=False)
+
+    def _chat(self, messages: list[dict], on_text: Callable[[str], None], model: str, timeout: float,
+              keep_alive, mark_down: bool = True) -> str | None:
+        body = {"model": model, "stream": True, "keep_alive": keep_alive,
                 "messages": messages, "options": {"temperature": self.c["temperature"], "num_ctx": self.c["num_ctx"]}}
         try:
-            resp = self._post("/api/chat", body, timeout=self.c["timeout"])
+            resp = self._post("/api/chat", body, timeout=timeout)
         except (OSError, ValueError) as e:
-            print(f"ローカル LLM につながりません：{e}")
-            self.down_until = self.clock() + 30
+            print(f"ローカル LLM につながりません（{model}）：{e}")
+            if mark_down:
+                self.down_until = self.clock() + 30
             return None
         self._hold(resp)
 
@@ -512,6 +536,22 @@ class GeminiBrain(_Cancelable):
         else:
             system = GEMINI_PROMPT.format(now=_now_text(self.now()), rules=SPEAK_RULES, data=(
                 f"\n持ち主の体調・健康の記録（これを元に答える。無いことは無いと言う）：\n{data}" if data else ""))
+        return self._run(system, contents, on_text, search)
+
+    def summarize(self, system: str, history: list[tuple[str, str]], text: str,
+                  on_text: Callable[[str], None]) -> str | None:
+        """検索結果の要約（search.py の受け皿）。Google 検索は使わない（検索の枠を減らさない）"""
+        if not self.available():
+            return None
+        self.count += 1
+        contents = []
+        for q, a in history[-self.c["history"]:]:
+            contents += [{"role": "user", "parts": [{"text": q}]}, {"role": "model", "parts": [{"text": a}]}]
+        contents.append({"role": "user", "parts": [{"text": text}]})
+        return self._run(system, contents, on_text, search=False)
+
+    def _run(self, system: str, contents: list[dict], on_text: Callable[[str], None], search: bool) -> str | None:
+        self.last = "error"  # 終わり方：ok／handoff（自分では無理と「@クロード」を返した）／error
         body = {"systemInstruction": {"parts": [{"text": system}]},
                 "contents": contents,
                 "generationConfig": {"temperature": self.c["temperature"], "maxOutputTokens": 1024}}
@@ -554,6 +594,7 @@ class GeminiBrain(_Cancelable):
         if answer and sources:
             # 調べたページの一覧を画面に出す（読み上げはしない）
             on_text(panel_line("sources", {"items": sources[: self.c["max_sources"]]}))
+        self.last = "ok" if answer else ("handoff" if answer is None else "error")
         return answer
 
 
@@ -563,7 +604,7 @@ class HybridBrain:
     """Brain と同じ形（ask / cancel）。会話の番号は自分で持ち、Claude のセッションは中で対応づける"""
 
     def __init__(self, cfg: dict, claude, local: LocalBrain | None = None, gemini: GeminiBrain | None = None,
-                 rewriter: Rewriter | None = None):
+                 rewriter: Rewriter | None = None, search: SearchBrain | None = None):
         self.cfg = cfg
         self.claude = claude
         self.use_local = cfg["local"]["enabled"]
@@ -571,6 +612,8 @@ class HybridBrain:
         self.gemini = gemini or GeminiBrain(cfg)
         # Claude に回す前の、ローカルでのプロンプト変換（rewrite.py。長い発話・長い履歴のときだけ）
         self.rewriter = rewriter or Rewriter(cfg, urlopen=self.local.urlopen)
+        # 検索の受け皿（search.py）：検索 API → Gemini 無料枠で要約 → ローカル 14B で要約
+        self.search = search or SearchBrain(cfg, self.gemini, self.local)
         self.conv: str | None = None
         self.claude_session: str | None = None
         self.history: list[tuple[str, str, str]] = []  # (質問, 答え, 答えた頭脳)
@@ -593,15 +636,16 @@ class HybridBrain:
         self.local.warm()  # 次から使えるように読み込んでおく
         return False
 
-    def _done(self, text: str, answer: str, by: str) -> Result:
+    def _done(self, text: str, answer: str, by: str, search: dict | None = None) -> Result:
         print(f"（{'ローカル' if by == 'local' else 'Gemini'}で答えました）")
         self.history.append((text, answer, by))
         self.unseen.append((text, answer))
-        return Result(answer=answer, session_id=self.conv, spoken=[answer], by=by)
+        return Result(answer=answer, session_id=self.conv, spoken=[answer], by=by, search=search)
 
     def ask(self, text: str, on_text: Callable[[str], None], session_id: str | None = None,
             confirmed: bool = False) -> Result:
         self.cut.clear()
+        search_log = None  # 調べものなら、使った検索の経路（ログ用）
         if not session_id or session_id != self.conv:
             self.conv = uuid.uuid4().hex
             self.claude_session, self.history, self.unseen = None, [], []
@@ -624,10 +668,25 @@ class HybridBrain:
                     if answer:
                         return self._done(text, answer, "gemini")
             elif needs_search(text):
-                # 調べもの：Gemini に検索させる。だめなら Claude（WebSearch）
-                answer = self.gemini.ask(outside_ok, text, on_text, search=True)
-                if answer:
-                    return self._done(text, answer, "gemini")
+                # 調べもの：ふだんは検索 API → 要約（Gemini 無料枠 → ローカル 14B）
+                # 深い検索と、検索 API が使えないときは、これまでどおり Gemini の検索。だめなら Claude（WebSearch）
+                deep = needs_deep_search(text)
+                if not deep:
+                    found = self.search.ask(text, outside_ok, on_text)
+                    search_log = found.log
+                    if found.answer:
+                        return self._done(text, found.answer, found.by, search=found.log)
+                    if found.handoff:
+                        deep = None  # Gemini の検索も飛ばして Claude へ
+                else:
+                    search_log = {"route": "", "deep": True}
+                if not self.cut.is_set() and deep is not None:
+                    answer = self.gemini.ask(outside_ok, text, on_text, search=True)
+                    if answer:
+                        search_log.update(route="gemini_search")
+                        return self._done(text, answer, "gemini", search=search_log)
+                search_log.setdefault("route", "")
+                search_log["route"] = search_log["route"] or "claude"
             else:
                 if is_chat(text) and self._local_ready():
                     answer = self.local.ask(everything, text, on_text)
@@ -663,6 +722,7 @@ class HybridBrain:
                 print(f"（ローカルで依頼を変換しました：{rw.log['before_chars']}→{rw.log['after_chars']}字）")
         res = self.claude.ask(prompt, on_text, session_id=session, confirmed=confirmed)
         res.rewrite = rw.log if rw else None
+        res.search = search_log
         if res.session_id:
             self.claude_session = res.session_id
             self.unseen = []
@@ -677,4 +737,5 @@ class HybridBrain:
         self.local.cancel()
         self.gemini.cancel()
         self.rewriter.cancel()
+        self.search.cancel()
         self.claude.cancel()
