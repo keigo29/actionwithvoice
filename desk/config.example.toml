@@ -3,6 +3,11 @@
 cmd_dir = "~/Cmd"            # Cmd のローカルクローン
 hotkey = "alt_r"             # 押している間だけ聞く（右 Option）。f13 や "§" なども可
 conversation_timeout = 300   # この秒数以内なら前の話の続き
+auto_continue = true         # 長い返事も「続き」「次」を待たずに最後まで話して見せる（キーで止まる）。false で6文で止める
+
+[self_improve]
+enabled = true               # 頼まれたら Ray が自分のコード（このリポジトリ）を書きかえてよい。コミット・push は確認してから
+dir = ""                     # 空ならこのリポジトリ
 
 [stt]
 engine = "auto"              # auto / mlx / whisper_cpp
@@ -44,6 +49,7 @@ enabled = true               # Gemini の無料枠（有料枠は使わない）
 api_key = ""                 # AI Studio で、課金を設定していないプロジェクトの鍵。環境変数 GEMINI_API_KEY でもよい
 model = "gemini-flash-lite-latest"
 search = true                # 調べものも Google 検索つきで Gemini に任せる
+search_daily_limit = 0       # 検索つきの1日の上限（ふつうとは別の枠）。分かったら書くと残りが出る。0 は不明
 daily_limit = 450            # 無料枠（1日500回）より少し手前で止める
 
 [search]

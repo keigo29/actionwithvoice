@@ -127,7 +127,8 @@ class Assistant:
         self.hub.set(state="thinking", question=question, text="考えています…", scene=None)
         self.on_screen = None  # 新しい返事の画面は、同じ種類でも開く音を鳴らす
         new_deck: list[scenes.Scene] = []
-        budget = guard.Budget()  # 1つの返事で話すのは6文まで
+        # 1つの返事で話すのは6文まで。auto_continue なら止めずに最後まで
+        budget = guard.Budget(limit=10**6) if self.cfg.get("auto_continue", True) else guard.Budget()
 
         def on_text(t: str) -> None:
             if self.cut.is_set():

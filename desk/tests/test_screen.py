@@ -287,6 +287,7 @@ class GuardInPresentTest(PresentTest):
     def test_long_plain_answer_stops_at_three_and_continues(self):
         ans = "一つ目です。二つ目です。三つ目です。四つ目です。五つ目です。六つ目です。七つ目です。八つ目です。"
         a, b, s, hub, shown = self.make([ans])
+        a.cfg["auto_continue"] = False
         a.handle_text("長い説明して")
         self.assertEqual(s.said, ["一つ目です。二つ目です。三つ目です。四つ目です。五つ目です。六つ目です。",
                                   "続きを聞くときは、続きと言ってください。"])
@@ -294,6 +295,17 @@ class GuardInPresentTest(PresentTest):
         self.assertEqual(s.said[-1], "七つ目です。八つ目です。")
         self.assertEqual(len(b.calls), 1)  # 続きは Claude を呼ばない
         self.assertEqual(a.rest, [])  # 話し終えたので、次の「続き」はふつうの質問として Claude に聞く
+
+    def test_auto_continue_plays_everything(self):
+        # 既定：「続き」「次」と言わなくても、最後の場面まで話して見せる
+        ans = ("@画面 calendar {\"range\":\"week\"}\n月曜です。火曜です。水曜です。\n"
+               "@画面 calendar {\"range\":\"week\"}\n木曜です。金曜です。土曜です。日曜です。\n"
+               "@画面 calendar {\"range\":\"week\"}\n来週です。")
+        a, b, s, hub, shown = self.make([ans])
+        a.handle_text("今週の予定")
+        self.assertEqual(s.said, ["月曜です。火曜です。水曜です。", "木曜です。金曜です。土曜です。日曜です。", "来週です。"])
+        self.assertEqual(a.pos, 2)
+        self.assertEqual(a.rest, [])
 
     def test_new_question_forgets_rest(self):
         a, b, s, hub, shown = self.make(["一。二。三。四。", "はい。"])
@@ -306,6 +318,7 @@ class GuardInPresentTest(PresentTest):
                "@画面 calendar {\"range\":\"week\"}\n木曜です。金曜です。土曜です。日曜です。\n"
                "@画面 calendar {\"range\":\"week\"}\n来週です。")
         a, b, s, hub, shown = self.make([ans])
+        a.cfg["auto_continue"] = False
         a.handle_text("今週の予定")
         self.assertEqual(s.said, ["月曜です。火曜です。水曜です。", "木曜です。金曜です。土曜です。", "続きは、次と言ってください。"])
         self.assertEqual(a.pos, 1)
@@ -323,6 +336,7 @@ class GuardInPresentTest(PresentTest):
         ans = '@画面 todos {}\nやることは7つです。一つ目。二つ目。三つ目。四つ目。五つ目。六つ目。'
         a, b, s, hub, shown = self.make([ans])
         a.log = lambda c, q, answer, extra=None: logs.append((answer, extra))
+        a.cfg["auto_continue"] = False
         a.handle_text("やること")
         answer, extra = logs[0]
         self.assertEqual(answer, "やることは7つです。一つ目。二つ目。三つ目。四つ目。五つ目。六つ目。")

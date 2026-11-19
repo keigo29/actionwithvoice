@@ -136,6 +136,7 @@ python -m ray --text 今日のデイリー読んで     # マイクなしで1回
 
 - 「おはよう」「朝のまとめ」で、天気 → 今日の予定 → 近い期限 → 習慣 を続けて見せます
 - 声での操作（Claude を呼ばずにすぐ動く）：「次」「戻って」「もう一回」「大きく」「小さく」「閉じて」。話している途中はキーを押せば止まります
+- 長い返事は、「続き」「次」と言わなくても最後の場面まで進みます（`auto_continue = false` で、6文で止めて「続き」を待つ以前の動きに戻せます）
 - ウェブページの写真は playwright が入っているときだけ撮ります（無ければ引用カードだけ）：
   ```sh
   pip install playwright && playwright install chromium
@@ -219,6 +220,7 @@ python3 -m unittest discover -s tests -t .   # マイク・スピーカーなし
 | `ray/audio.py` | 録音・黙ったら止める判定 |
 | `ray/wake.py` | ウェイクワード |
 | `ray/ui.py`・`ray/ui/index.html` | 光る円と、場面ごとの絵の画面（http://localhost:8765） |
+| `ray/usage.py` | 画面の右下に出す、Claude（Pro の5時間枠・1週間枠の残り％）と Gemini（無料枠の残り回数）。`[ui] usage = false` で消せる |
 | `ray/scenes.py` | 返事を `@画面` の行で場面に分ける |
 | `ray/visuals.py` | 場面の絵のデータを Cmd から作る（カレンダー・やること・習慣など） |
 | `ray/shots.py` | ウェブページの写真（playwright があるとき） |

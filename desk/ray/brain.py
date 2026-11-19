@@ -8,6 +8,7 @@ import re
 import subprocess
 import threading
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable, Iterable
 
 VOICE_PROMPT = """\
@@ -56,6 +57,17 @@ SCREEN_PROMPT = """持ち主の前には画面があります。返事には毎�
 「おはよう」「朝のまとめ」と言われたら、weather → calendar(day) → todos(due_within 3) の3場面にする。習慣（habits）は聞かれたときだけ出す。
 """
 
+# このリポジトリ（desk/ray/brain.py から3つ上）
+SELF_DIR = Path(__file__).resolve().parents[2]
+
+SELF_PROMPT = """
+自分（Ray）の改善
+- 自分のコードは {dir} にあります（音声アシスタント本体は desk/ray/、説明は desk/README.md）。直してよいと頼まれたら、そのフォルダのファイルを書きかえてよい
+- 直したら desk/tests のテストが通るか確かめる。直した内容が反映されるのは、Ray を起動し直したとき。そのことを最後に一言伝える
+- desk/config.toml には鍵が入っているので、読まない・書かない
+- 自分のフォルダのコミットと push は、確認してから行う
+"""
+
 CONFIRM_PREFIX = "確認です"
 
 # 確認なしで使ってよいもの（読む・調べる・Cmd へのふつうの書き込みと同期）
@@ -95,16 +107,33 @@ def is_confirm(answer: str) -> bool:
     return answer.strip().startswith(CONFIRM_PREFIX)
 
 
+def self_dir(cfg: dict) -> Path | None:
+    """Ray が自分を直すときに書き込んでよいフォルダ（このリポジトリ）。self_improve = false なら無し"""
+    s = cfg.get("self_improve", {})
+    if not s.get("enabled", True):
+        return None
+    return Path(s.get("dir") or SELF_DIR).expanduser().resolve()
+
+
 def build_command(cfg: dict, session_id: str | None = None, confirmed: bool = False) -> list[str]:
     c = cfg["claude"]
+    me = self_dir(cfg)
+    prompt = VOICE_PROMPT + (SCREEN_PROMPT if cfg.get("ui", {}).get("enabled", True) else "")
+    deny = list(ALWAYS_DENY)
+    if me:
+        prompt += SELF_PROMPT.format(dir=me)
+        secret = me / "desk" / "config.toml"  # Gemini の鍵が入っている
+        deny += [f"Read(/{secret})", f"Edit(/{secret})", f"Write(/{secret})"]  # 「//」で始めると絶対パス
     cmd = [
         c["bin"], "-p",
         "--output-format", "stream-json", "--verbose",
-        "--append-system-prompt", VOICE_PROMPT + (SCREEN_PROMPT if cfg.get("ui", {}).get("enabled", True) else ""),
+        "--append-system-prompt", prompt,
         "--permission-mode", "acceptEdits",
         "--allowedTools", *(SAFE_TOOLS + (CONFIRMED_TOOLS if confirmed else [])),
-        "--disallowedTools", *ALWAYS_DENY,
+        "--disallowedTools", *deny,
     ]
+    if me:
+        cmd += ["--add-dir", str(me)]  # Cmd のほかに、自分のフォルダにも書き込める
     if session_id:
         cmd += ["--resume", session_id]
     if c.get("model"):
