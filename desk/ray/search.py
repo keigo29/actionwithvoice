@@ -1,8 +1,9 @@
-"""検索の受け皿：検索 API で取りに行き → Gemini 無料枠で要約 → だめならローカル 14B で要約
+"""検索の受け皿：検索 API で取りに行き → Gemini 無料枠で要約 → だめなら Claude
 
 Cmd の Notes/音声連携.md「検索の受け皿（2026-11-19）」の方針：
 - Gemini 無料枠の検索（google_search）は上限が早く枯れるので、ふだんの検索は検索 API（Tavily）で結果を取る
-- 要約は Gemini 無料枠（Flash-Lite）。枠が枯れた・失敗したらローカルの 14B。それも無理なら Claude
+- 要約は Gemini 無料枠（Flash-Lite）。枠が枯れた・止めてある・失敗したら Claude（WebSearch）へ
+  （ローカル 14B は使わない。2026-11-19 本人の判断。Gemini が使えないときは検索 API も呼ばず、枠を減らさない）
 - 深い検索（いくつもの情報源を比べる）だけは、これまでどおり Gemini の検索か Claude へ（Gemini の検索枠は温存）
 - 外へ出るのは検索の言葉と公開情報だけ。予定や家計などの持ち主のデータは混ぜない
   （ここに来るのは、振り分けで持ち主のデータ・作業の言葉が無いと分かった質問だけ。言葉も公開の検索結果も外に出してよい側）
@@ -122,20 +123,19 @@ def _now_text(now: datetime) -> str:
 @dataclass
 class Found:
     answer: str | None = None
-    by: str = ""                      # gemini / local（要約した頭脳）
-    handoff: bool = False             # 要約した頭脳が「@クロード」と返した（持ち主のデータ・作業が要る）
+    by: str = ""                      # gemini（要約した頭脳）
+    to_claude: bool = False           # 要約できなかった・「@クロード」と返した：Gemini の検索も飛ばして Claude へ
     log: dict = field(default_factory=dict)
 
 
 class SearchBrain:
-    """検索 API → 要約（Gemini 無料枠 → ローカル 14B）。答えられなければ answer=None（次の段に回す）"""
+    """検索 API → 要約（Gemini 無料枠）。答えられなければ answer=None（次の段に回す）"""
 
-    def __init__(self, cfg: dict, gemini, local, urlopen=urllib.request.urlopen, env: dict | None = None,
+    def __init__(self, cfg: dict, gemini, urlopen=urllib.request.urlopen, env: dict | None = None,
                  now: Callable[[], datetime] = lambda: datetime.now(JST)):
         self.cfg = cfg
         self.c = cfg["search"]
         self.gemini = gemini
-        self.local = local
         self.urlopen = urlopen
         self.now = now
         env = os.environ if env is None else env
@@ -164,6 +164,10 @@ class SearchBrain:
         if not self.available():
             log["error"] = "search_unavailable"  # 鍵がない・止めてある・枠を使い切った
             return Found(log=log)
+        if not self.gemini.available():
+            # 要約できる頭脳が無いので、検索 API の枠も使わずに Claude へ
+            log.update(route="claude", error="gemini_unavailable")
+            return Found(log=log, to_claude=True)
         query = build_query(text, self.near(), self.previous)
         log["query"] = query
         self.count += 1
@@ -187,32 +191,23 @@ class SearchBrain:
                                        results=results_text(results, self.c["summary_results"]))
         sources = [{"title": r["title"] or r["site"], "url": r["url"], "site": r["site"]}
                    for r in results[: self.cfg["gemini"].get("max_sources", 5)]]
-        # 要約：Gemini 無料枠 → ローカル 14B
-        tried = []
-        if not self.cut.is_set() and self.gemini.available():
-            tried.append("gemini")
-            answer = self.gemini.summarize(system, history, text, on_text)
-            if answer:
-                return self._found(answer, "gemini", log, tried, sources, on_text)
-            if getattr(self.gemini, "last", "") == "handoff":
-                log.update(route="claude", tried=tried, error="handoff")  # 14B を試さず、すぐ Claude へ
-                return Found(log=log, handoff=True)
-        if not self.cut.is_set() and self.cfg["local"]["enabled"] and self.c.get("local_model"):
-            tried.append("local")
-            answer = self.local.summarize(self.c["local_model"], system, text, on_text,
-                                          timeout=self.c["local_timeout"], keep_alive=self.c["local_keep_alive"])
-            if answer:
-                return self._found(answer, "local", log, tried, sources, on_text)
-        log.update(route="", tried=tried, error="summary_failed")
-        return Found(log=log)
+        # 要約：Gemini 無料枠。だめなら Claude
+        if self.cut.is_set():
+            return Found(log=log)
+        answer = self.gemini.summarize(system, history, text, on_text)
+        if answer:
+            return self._found(answer, "gemini", log, sources, on_text)
+        handoff = getattr(self.gemini, "last", "") == "handoff"
+        log.update(route="claude", error="handoff" if handoff else "summary_failed")
+        return Found(log=log, to_claude=True)
 
     def _rules(self) -> str:
         from .local import SPEAK_RULES
         return SPEAK_RULES
 
-    def _found(self, answer, by, log, tried, sources, on_text) -> Found:
+    def _found(self, answer, by, log, sources, on_text) -> Found:
         on_text(_panel(sources))  # 調べたページの一覧を画面に出す（読み上げはしない）
-        log.update(route=f"{log['provider']}+{by}", tried=tried, answer=answer)
+        log.update(route=f"{log['provider']}+{by}", answer=answer)
         return Found(answer=answer, by=by, log=log)
 
     def cancel(self) -> None:

@@ -460,22 +460,15 @@ class LocalBrain(_Cancelable):
         messages.append({"role": "user", "content": text})
         return self._chat(messages, on_text, self.c["model"], self.c["timeout"], self.c["keep_alive"])
 
-    def summarize(self, model: str, system: str, text: str, on_text: Callable[[str], None],
-                  timeout: float = 90, keep_alive="5m") -> str | None:
-        """検索結果の要約（search.py の受け皿）。常駐の 7B とは別のモデル（14B）を、使うときだけ載せる"""
-        messages = [{"role": "system", "content": system}, {"role": "user", "content": text}]
-        return self._chat(messages, on_text, model, timeout, keep_alive, mark_down=False)
-
     def _chat(self, messages: list[dict], on_text: Callable[[str], None], model: str, timeout: float,
-              keep_alive, mark_down: bool = True) -> str | None:
+              keep_alive) -> str | None:
         body = {"model": model, "stream": True, "keep_alive": keep_alive,
                 "messages": messages, "options": {"temperature": self.c["temperature"], "num_ctx": self.c["num_ctx"]}}
         try:
             resp = self._post("/api/chat", body, timeout=timeout)
         except (OSError, ValueError) as e:
-            print(f"ローカル LLM につながりません（{model}）：{e}")
-            if mark_down:
-                self.down_until = self.clock() + 30
+            print(f"ローカル LLM につながりません：{e}")
+            self.down_until = self.clock() + 30
             return None
         self._hold(resp)
 
@@ -612,8 +605,8 @@ class HybridBrain:
         self.gemini = gemini or GeminiBrain(cfg)
         # Claude に回す前の、ローカルでのプロンプト変換（rewrite.py。長い発話・長い履歴のときだけ）
         self.rewriter = rewriter or Rewriter(cfg, urlopen=self.local.urlopen)
-        # 検索の受け皿（search.py）：検索 API → Gemini 無料枠で要約 → ローカル 14B で要約
-        self.search = search or SearchBrain(cfg, self.gemini, self.local)
+        # 検索の受け皿（search.py）：検索 API → Gemini 無料枠で要約 → だめなら Claude
+        self.search = search or SearchBrain(cfg, self.gemini)
         self.conv: str | None = None
         self.claude_session: str | None = None
         self.history: list[tuple[str, str, str]] = []  # (質問, 答え, 答えた頭脳)
@@ -668,7 +661,7 @@ class HybridBrain:
                     if answer:
                         return self._done(text, answer, "gemini")
             elif needs_search(text):
-                # 調べもの：ふだんは検索 API → 要約（Gemini 無料枠 → ローカル 14B）
+                # 調べもの：ふだんは検索 API → Gemini 無料枠で要約。要約できなければ Claude
                 # 深い検索と、検索 API が使えないときは、これまでどおり Gemini の検索。だめなら Claude（WebSearch）
                 deep = needs_deep_search(text)
                 if not deep:
@@ -676,7 +669,7 @@ class HybridBrain:
                     search_log = found.log
                     if found.answer:
                         return self._done(text, found.answer, found.by, search=found.log)
-                    if found.handoff:
+                    if found.to_claude:
                         deep = None  # Gemini の検索も飛ばして Claude へ
                 else:
                     search_log = {"route": "", "deep": True}

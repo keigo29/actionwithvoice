@@ -72,7 +72,7 @@ def check(cfg: dict) -> bool:
     if cfg["search"]["enabled"]:
         from .search import SearchBrain
 
-        if SearchBrain(cfg, None, None).key:
+        if SearchBrain(cfg, None).key:
             print(f"✅ 検索 API（{cfg['search']['provider']}）")
         else:
             print("⚠️  検索 API の鍵がありません（調べものは Gemini の検索 → Claude で答えます）"

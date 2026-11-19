@@ -1,4 +1,4 @@
-"""検索の受け皿：検索 API（Tavily）→ Gemini 無料枠で要約 → ローカル 14B で要約 → Claude"""
+"""検索の受け皿：検索 API（Tavily）→ Gemini 無料枠で要約 → Claude"""
 
 import json
 import tempfile
@@ -70,7 +70,7 @@ class Base(unittest.TestCase):
         claude = FakeClaude()
         lb = local.LocalBrain(c, urlopen=net)
         gem = local.GeminiBrain(c, urlopen=net, now=lambda: NOW, env={"GEMINI_API_KEY": gemini_key} if gemini_key else {})
-        sb = search.SearchBrain(c, gem, lb, urlopen=net, env={"TAVILY_API_KEY": tavily_key} if tavily_key else {},
+        sb = search.SearchBrain(c, gem, urlopen=net, env={"TAVILY_API_KEY": tavily_key} if tavily_key else {},
                                 now=lambda: NOW)
         return local.HybridBrain(c, claude, lb, gem, search=sb), claude
 
@@ -98,40 +98,40 @@ class RouteTest(Base):
         self.assertEqual(log["results"][0]["url"], "https://example.com/yoshimuraya")
         self.assertEqual(res.by, "gemini")
 
-    def test_gemini_stopped_local_14b_summarizes(self):
+    def test_gemini_stopped_goes_to_claude_without_spending_search(self):
         self.cfg["gemini"]["enabled"] = False
-        net = FakeNet(tavily=[RAMEN], ollama=[["横浜駅の吉村家が有名です。"]])
-        h, claude = self.hybrid(net)
-        res = h.ask("近くの家系ラーメン教えて", lambda t: None)
-        self.assertEqual(res.answer, "横浜駅の吉村家が有名です。")
-        self.assertEqual(res.search["route"], "tavily+local")
-        chat = [b for u, b, _ in net.calls if u.endswith("/api/chat")][0]
-        self.assertEqual(chat["model"], "qwen2.5:14b")
-        self.assertEqual(chat["keep_alive"], "5m")  # 使ったら外す（常駐は 7B だけ）
-        self.assertIn("杉田家", chat["messages"][0]["content"])
-        self.assertEqual(claude.calls, [])
-
-    def test_gemini_quota_goes_to_local(self):
-        net = FakeNet(tavily=[RAMEN], gemini=[429], ollama=[["吉村家です。"]])
-        h, _ = self.hybrid(net)
-        res = h.ask("近くの家系ラーメン教えて", lambda t: None)
-        self.assertEqual(res.search["route"], "tavily+local")
-        self.assertEqual(res.search["tried"], ["gemini", "local"])
-
-    def test_both_summaries_fail_goes_to_claude(self):
-        net = FakeNet(tavily=[RAMEN], gemini=[500, 500], ollama=[404])
+        net = FakeNet()
         h, claude = self.hybrid(net)
         res = h.ask("近くの家系ラーメン教えて", lambda t: None)
         self.assertEqual(len(claude.calls), 1)
+        self.assertEqual(net.urls("tavily"), [])   # 要約できないので、検索 API の枠も使わない
+        self.assertEqual([u for u, _, _ in net.calls if u.endswith("/api/chat")], [])  # ローカルでは要約しない
+        self.assertEqual((res.search["route"], res.search["error"]), ("claude", "gemini_unavailable"))
+
+    def test_gemini_quota_goes_to_claude(self):
+        net = FakeNet(tavily=[RAMEN], gemini=[429])
+        h, claude = self.hybrid(net)
+        res = h.ask("近くの家系ラーメン教えて", lambda t: None)
+        self.assertEqual(len(claude.calls), 1)
+        self.assertEqual(len(net.urls("generativelanguage")), 1)  # Gemini の検索はもう試さない
+        self.assertEqual((res.search["route"], res.search["error"]), ("claude", "summary_failed"))
+        # 次からは、枠が戻るまで Tavily も呼ばない
+        h.ask("近くのカフェを調べて", lambda t: None)
+        self.assertEqual(len(net.urls("tavily")), 1)
+
+    def test_summary_error_goes_to_claude(self):
+        net = FakeNet(tavily=[RAMEN], gemini=[500])
+        h, claude = self.hybrid(net)
+        res = h.ask("近くの家系ラーメン教えて", lambda t: None)
+        self.assertEqual(len(claude.calls), 1)
+        self.assertEqual([u for u, _, _ in net.calls if u.endswith("/api/chat")], [])
         self.assertEqual(res.search["route"], "claude")
-        self.assertEqual(res.search["error"], "summary_failed")
 
     def test_handoff_goes_straight_to_claude(self):
         net = FakeNet(tavily=[RAMEN], gemini=[["@クロード"]])
         h, claude = self.hybrid(net)
         res = h.ask("インターネットでその店を検索して、予約できるか教えて", lambda t: None)
         self.assertEqual(len(claude.calls), 1)
-        self.assertEqual([u for u, _, _ in net.calls if u.endswith("/api/chat")], [])  # 14B は試さない
         self.assertEqual(len(net.urls("generativelanguage")), 1)  # Gemini の検索も使わない
         self.assertEqual((res.search["route"], res.search["error"]), ("claude", "handoff"))
 
@@ -193,17 +193,17 @@ class QueryTest(unittest.TestCase):
 
     def test_near_from_config(self):
         cfg = config.load("/nonexistent.toml")
-        sb = search.SearchBrain(cfg, None, None, env={})
+        sb = search.SearchBrain(cfg, None, env={})
         self.assertEqual(sb.near(), "横浜")  # 空なら [weather] place
         cfg["search"]["near"] = "上星川駅"
         self.assertEqual(sb.near(), "上星川駅")
 
     def test_key_from_config_or_env(self):
         cfg = config.load("/nonexistent.toml")
-        self.assertFalse(search.SearchBrain(cfg, None, None, env={}).available())
-        self.assertTrue(search.SearchBrain(cfg, None, None, env={"TAVILY_API_KEY": "k"}).available())
+        self.assertFalse(search.SearchBrain(cfg, None, env={}).available())
+        self.assertTrue(search.SearchBrain(cfg, None, env={"TAVILY_API_KEY": "k"}).available())
         cfg["search"]["api_key"] = "k2"
-        self.assertEqual(search.SearchBrain(cfg, None, None, env={}).key, "k2")
+        self.assertEqual(search.SearchBrain(cfg, None, env={}).key, "k2")
 
 
 class LogTest(Base):

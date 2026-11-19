@@ -25,7 +25,7 @@ Cmd の `Notes/音声連携.md` の「振り分けとフォールバック」「
 |---|---|---|
 | あいさつ・一般知識・計算・翻訳 | ローカル → Gemini → Claude | なし |
 | 「詳しく」 | Gemini → Claude | なし |
-| 調べもの・ニュース・値段・店・「近くの〜」 | 検索 API（Tavily）→ 要約は Gemini → ローカル 14B → Claude | 調べたページの一覧 |
+| 調べもの・ニュース・値段・店・「近くの〜」 | 検索 API（Tavily）→ 要約は Gemini → Claude | 調べたページの一覧 |
 | 比べる・まとめて調べる（深い検索） | Gemini（グーグル検索つき）→ Claude | 調べたページの一覧 |
 | 体調・体重・気分・習慣・筋トレ | Ray が Cmd の記録を読んで、ローカル → Gemini → Claude | 体重・気分のグラフ／習慣のマス目／筋トレ |
 | お金・仕事・予定・メモ・ファイルの作業・天気・朝のまとめ | Claude だけ | Claude が選ぶ |
@@ -41,11 +41,11 @@ Gemini の検索の枠は早く無くなるので、ふだんの調べものは�
 
 1. **取る**：Tavily の基本検索（1回1クレジット。無料で月1,000クレジット。月950回で止めます）。「近く」は `[search] near` の場所の名前に置き換えます（空なら `[weather] place`）。「その店の営業時間」のような続きの質問は、前の検索の言葉を足します
 2. **要約**：上位5件を Gemini 無料枠（Flash-Lite、グーグル検索は使わない）に渡し、3文以内・記号なし・日本語で答えます。結果にある実在の名前だけを使い、無いものは作らせません
-3. **受け皿**：Gemini の枠が無い・失敗したら、ローカルの 14B（既定 `qwen2.5:14b`。使うときだけ載せ、5分で外す）が要約します。それも無理なら Claude
+3. **だめなとき**：Gemini の枠が無い・止めてある・要約に失敗したら、Claude（WebSearch）が答えます。Gemini が使えないときは、Tavily も呼びません（枠を減らさない）。ローカル 14B は使いません
 - 比べる・まとめて調べるような深い検索と、Tavily の鍵が無い・枠が無い・結果が無いときは、これまでどおり Gemini の検索 → Claude
 - 外に出るのは検索の言葉と公開の検索結果だけです。予定・家計・メモなど持ち主のデータの言葉がある質問は、振り分けで Claude に行くので、検索には来ません
 - 鍵は環境変数 `TAVILY_API_KEY` か `config.toml` の `[search] api_key`。ログや Cmd には書きません
-- ログの JSON の `search` に、経路（`route`：`tavily+gemini` / `tavily+local` / `gemini_search` / `claude`）、検索の言葉（`query`）、結果のタイトルと URL（`results`）、試した要約（`tried`）、失敗の理由（`error`）を残します
+- ログの JSON の `search` に、経路（`route`：`tavily+gemini` / `gemini_search` / `claude`）、検索の言葉（`query`）、結果のタイトルと URL（`results`）、失敗の理由（`error`）を残します
 - 検索 API は `SEARCHERS` で差し替えられます（Exa などを足すときは、同じ形の関数を1つ足す）
 
 ### プロンプト変換（Claude に回す前）
@@ -71,7 +71,7 @@ Claude 行きと決まった質問のうち、**長い発話**（60字以上）�
 準備：
 - ローカル：`brew install ollama` → `ollama pull qwen2.5:7b`。使わないなら `config.toml` の `[local]` を `enabled = false`
 - Gemini：Google AI Studio で、**課金を設定していないプロジェクト**の API キーを作り、環境変数 `GEMINI_API_KEY` か `config.toml` の `[gemini] api_key` に入れる。鍵が無ければ Gemini の段は飛ばします
-- 検索：Tavily に登録（カード不要）して API キーを作り、環境変数 `TAVILY_API_KEY` か `config.toml` の `[search] api_key` に入れる。要約の受け皿に `ollama pull qwen2.5:14b`（約 9GB。ふだんは載せない）
+- 検索：Tavily に登録（カード不要）して API キーを作り、環境変数 `TAVILY_API_KEY` か `config.toml` の `[search] api_key` に入れる
 - `python -m ray --check` で確かめられます
 
 ## 安全のための決まり

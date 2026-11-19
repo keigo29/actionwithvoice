@@ -47,12 +47,10 @@ search = true                # 調べものも Google 検索つきで Gemini に
 daily_limit = 450            # 無料枠（1日500回）より少し手前で止める
 
 [search]
-enabled = true               # 調べものは検索 API（Tavily）で取り、Gemini 無料枠 → ローカル 14B で要約する
+enabled = true               # 調べものは検索 API（Tavily）で取り、Gemini 無料枠で要約する（だめなら Claude）
 api_key = ""                 # Tavily の鍵。環境変数 TAVILY_API_KEY でもよい（config.toml は Git に入らない）
 near = ""                    # 「近く」と言ったときの場所（例 "上星川駅"）。空なら [weather] place。検索の言葉として外に出る
 monthly_limit = 950          # 無料枠（月1,000クレジット）より少し手前で止める
-local_model = "qwen2.5:14b"  # Gemini が無理なときに要約するローカルのモデル（使うときだけ載せる）
-local_keep_alive = "5m"      # 使ったあと、この時間で外す
 
 [wake]
 enabled = false
