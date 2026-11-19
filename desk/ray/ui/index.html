@@ -67,7 +67,7 @@
   .hud[data-state="thinking"] .seg { animation-duration: calc(4s / var(--speed)); }
   .hud[data-state="listening"] .halo, .hud[data-state="speaking"] .halo { animation: pulse 1.4s ease-in-out infinite; }
 
-  /* 待機中は横から見た形（傾いた輪がずれて重なる）。呼ばれたら正面に向き直って1つにまとまる */
+  /* 待機中は横から見た形（中心をそろえ、同じ向きに傾けた1つの輪の集まり）。呼ばれたら正面に向き直る */
   .hud .layer { transform: none; opacity: 1;
     transition: transform 1.25s cubic-bezier(.2, .85, .25, 1) var(--d, 0s), opacity .6s ease var(--d, 0s); }
   .hud[data-state="idle"] .layer {
@@ -423,26 +423,26 @@ function buildHud(el, { name = true } = {}) {
   const L = (style, svg, cls = "") => `<div class="layer ${cls}" style="${style}">${svg}</div>`;
   el.innerHTML =
     '<div class="halo"></div><div class="drift">' +
-    // 目盛りの輪：右上に、少し傾いて
-    L("--d:.30s;--ix:17%;--iy:-15%;--iz:-20deg;--iy3:38deg;--ix3:18deg;--is:.6",
+    // 目盛りの輪
+    L("--d:.30s;--iz:-30deg;--iy3:58deg;--ix3:6deg;--is:.66",
       ringSvg(`<g class="spin" style="--t:60s" stroke="var(--ring)" stroke-width="1.6" opacity=".6">${ticks(186, 192, 90, 5, 7)}</g>`)) +
-    // 点線＋赤い弧：左下で、ほぼ真横
-    L("--d:.12s;--ix:-14%;--iy:10%;--iz:-34deg;--iy3:74deg;--is:.62",
+    // 点線＋オレンジの弧
+    L("--d:.12s;--iz:-30deg;--iy3:66deg;--ix3:-4deg;--is:.66",
       ringSvg(`<g class="spin" style="--t:38s;--dir:reverse"><circle cx="200" cy="200" r="168" fill="none" stroke="var(--ring)" stroke-width="2" stroke-dasharray="2 9" opacity=".7"/>
         <circle cx="200" cy="200" r="168" fill="none" stroke="var(--neon)" stroke-width="5" stroke-dasharray="60 470 22 503" stroke-linecap="round"/></g>`)) +
-    // 赤い弧の輪：まん中より少し右
-    L("--d:.20s;--ix:4%;--iy:-2%;--iz:-32deg;--iy3:66deg;--ix3:-8deg;--is:.6",
+    // オレンジの弧の輪
+    L("--d:.20s;--iz:-30deg;--iy3:62deg;--ix3:3deg;--is:.66",
       ringSvg(`<g class="spin seg" style="--t:22s"><circle cx="200" cy="200" r="148" fill="none" stroke="var(--neon2)" stroke-width="3" stroke-dasharray="140 38 46 26 90 60 70 460" opacity=".9"/></g>`, "neon")) +
-    // 白い輪：左に、真横
-    L("--d:.06s;--ix:-20%;--iy:12%;--iz:-36deg;--iy3:72deg;--ix3:6deg;--is:.72",
+    // 白い輪
+    L("--d:.06s;--iz:-30deg;--iy3:64deg;--ix3:-2deg;--is:.66",
       ringSvg(`<g class="spin" style="--t:16s;--dir:reverse"><circle cx="200" cy="200" r="128" fill="none" stroke="#fff" stroke-width="2.4" stroke-dasharray="230 18 120 18 160 260" opacity=".9"/>
         <circle cx="200" cy="200" r="120" fill="none" stroke="var(--ring)" stroke-width="1" opacity=".35"/></g>`)) +
-    // ネオンの輪：まん中、ななめ
-    L("--d:0s;--ix:-5%;--iy:4%;--iz:-30deg;--iy3:62deg;--is:.66",
+    // ネオンの輪（待機中は、ほかの輪もこれと同じ中心・ほぼ同じ傾き）
+    L("--d:0s;--iz:-30deg;--iy3:62deg;--is:.66",
       ringSvg(`<g class="core"><circle cx="200" cy="200" r="104" fill="rgba(11,13,18,.9)" stroke="var(--neon)" stroke-width="9"/>
         <circle cx="200" cy="200" r="92" fill="none" stroke="var(--neon2)" stroke-width="1.5" opacity=".7"/></g>`, "neon")) +
-    // 浮かぶ点と十字：右上へ散らす
-    L("--d:.24s;--ix:10%;--iy:-8%;--iz:-20deg;--iy3:42deg;--ix3:24deg;--is:.8",
+    // 浮かぶ点と十字
+    L("--d:.24s;--iz:-30deg;--iy3:58deg;--ix3:6deg;--is:.66",
       ringSvg(`<g class="spin" style="--t:90s" fill="var(--ring)" opacity=".75">${dots(16, 196, 215, 7)}</g>
         <g stroke="var(--ring)" stroke-width="1" opacity=".25"><line x1="200" y1="70" x2="200" y2="96"/><line x1="200" y1="304" x2="200" y2="330"/><line x1="70" y1="200" x2="96" y2="200"/><line x1="304" y1="200" x2="330" y2="200"/></g>`), "side-dim") +
     '</div>' +
