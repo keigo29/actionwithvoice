@@ -28,6 +28,7 @@ from typing import Callable
 
 from . import visuals
 from .brain import Result
+from .rewrite import Rewriter
 
 JST = timezone(timedelta(hours=9))
 HANDOFF = "@クロード"
@@ -467,12 +468,15 @@ class GeminiBrain(_Cancelable):
 class HybridBrain:
     """Brain と同じ形（ask / cancel）。会話の番号は自分で持ち、Claude のセッションは中で対応づける"""
 
-    def __init__(self, cfg: dict, claude, local: LocalBrain | None = None, gemini: GeminiBrain | None = None):
+    def __init__(self, cfg: dict, claude, local: LocalBrain | None = None, gemini: GeminiBrain | None = None,
+                 rewriter: Rewriter | None = None):
         self.cfg = cfg
         self.claude = claude
         self.use_local = cfg["local"]["enabled"]
         self.local = local or LocalBrain(cfg)
         self.gemini = gemini or GeminiBrain(cfg)
+        # Claude に回す前の、ローカルでのプロンプト変換（rewrite.py。長い発話・長い履歴のときだけ）
+        self.rewriter = rewriter or Rewriter(cfg, urlopen=self.local.urlopen)
         self.conv: str | None = None
         self.claude_session: str | None = None
         self.history: list[tuple[str, str, str]] = []  # (質問, 答え, 答えた頭脳)
@@ -546,7 +550,21 @@ class HybridBrain:
         if self.unseen and not confirmed:
             lines = "\n".join(f"持ち主：{q}\nレイ：{a}" for q, a in self.unseen)
             prompt = f"（ここまでのやり取り）\n{lines}\n（今の質問）\n{text}"
-        res = self.claude.ask(prompt, on_text, session_id=self.claude_session, confirmed=confirmed)
+        # Claude 行きと決まったあと：長い発話・長い履歴なら、ローカルで短い依頼に変換する（失敗したら原文のまま）
+        rw = None
+        session = self.claude_session
+        if not confirmed:
+            rw = self.rewriter.convert(text, everything, self.unseen,
+                                       ready=lambda: self.use_local and self.local.loaded())
+            if self.cut.is_set():
+                return Result(answer="", session_id=self.conv, is_error=True, by="claude")
+            if rw.prompt:
+                prompt = rw.prompt
+                if rw.fresh:
+                    session = None  # 要約を渡して新しく始める（これまでの分を Claude に読み直させない）
+                print(f"（ローカルで依頼を変換しました：{rw.log['before_chars']}→{rw.log['after_chars']}字）")
+        res = self.claude.ask(prompt, on_text, session_id=session, confirmed=confirmed)
+        res.rewrite = rw.log if rw else None
         if res.session_id:
             self.claude_session = res.session_id
             self.unseen = []
@@ -560,4 +578,5 @@ class HybridBrain:
         self.cut.set()
         self.local.cancel()
         self.gemini.cancel()
+        self.rewriter.cancel()
         self.claude.cancel()

@@ -131,6 +131,7 @@ class Result:
     is_error: bool = False
     spoken: list[str] = field(default_factory=list)
     by: str = "claude"  # 答えた頭脳（claude / local）
+    rewrite: dict | None = None  # Claude に回す前のプロンプト変換の記録（rewrite.py）
 
 
 def parse_stream(lines: Iterable[str], on_text: Callable[[str], None]) -> Result:
