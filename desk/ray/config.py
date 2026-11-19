@@ -52,6 +52,20 @@ DEFAULTS: dict = {
         "temperature": 0.3,
         "history": 6,
     },
+    # 検索の受け皿（search.py）：検索 API（Tavily）で取り → Gemini 無料枠で要約 → だめなら Claude
+    # 鍵は環境変数 TAVILY_API_KEY か、config.toml の api_key（config.toml は Git に入らない）
+    "search": {
+        "enabled": True,
+        "provider": "tavily",
+        "api_key": "",
+        "depth": "basic",        # basic は1クレジット（advanced は2）
+        "max_results": 5,
+        "summary_results": 5,    # 要約に渡す上位の数
+        "country": "japan",      # 日本のページを優先する
+        "near": "",              # 「近く」をこの場所の名前に置き換える（空なら [weather] place）。検索の言葉として外に出る
+        "monthly_limit": 950,    # 念のため、無料枠（月1,000クレジット）より少し手前で止める
+        "timeout": 10,
+    },
     "wake": {
         "enabled": False,
         # openWakeWord のモデル（.onnx / .tflite）。「レイ」は自分で学習させたものを指定

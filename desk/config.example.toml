@@ -27,12 +27,30 @@ model = "qwen2.5:7b"
 keep_alive = -1              # -1 は Ray が動いている間ずっとメモリに載せる（約 9.5GB。Ray を止めると外す）。"1h" などにもできる
 timeout = 8                  # この秒数、返事がなければ Claude に回す
 
+[rewrite]
+# Claude に回す前に、ローカル LLM が長い発話・長い履歴を短い依頼に変換する（Mac の外には出さない）
+# 既定は ray/rewrite.py の定数。変えたいものだけ書く
+enabled = true
+min_chars = 60               # 発話がこの字数以上なら変換する
+min_history_turns = 4        # 同じ会話のやり取りがこの数以上なら、履歴を要約して Claude のセッションを新しく始める
+min_history_chars = 1200     # または、やり取りの字数の合計がこれ以上なら
+timeout = 10                 # この秒数で変換が終わらなければ、原文のまま Claude へ
+fresh_session = true         # 履歴を要約したら --resume せずに始める（履歴とファイルの読み直しを減らす）
+templates = true             # やることの追加・記録・予定の確認は、テンプレで依頼にする（7B を呼ばない）
+templates_on_short = true    # テンプレは短い質問にも使う
+
 [gemini]
 enabled = true               # Gemini の無料枠（有料枠は使わない）。鍵が無ければ、この段は飛ばして Claude
 api_key = ""                 # AI Studio で、課金を設定していないプロジェクトの鍵。環境変数 GEMINI_API_KEY でもよい
 model = "gemini-flash-lite-latest"
 search = true                # 調べものも Google 検索つきで Gemini に任せる
 daily_limit = 450            # 無料枠（1日500回）より少し手前で止める
+
+[search]
+enabled = true               # 調べものは検索 API（Tavily）で取り、Gemini 無料枠で要約する（だめなら Claude）
+api_key = ""                 # Tavily の鍵。環境変数 TAVILY_API_KEY でもよい（config.toml は Git に入らない）
+near = ""                    # 「近く」と言ったときの場所（例 "上星川駅"）。空なら [weather] place。検索の言葉として外に出る
+monthly_limit = 950          # 無料枠（月1,000クレジット）より少し手前で止める
 
 [wake]
 enabled = false
