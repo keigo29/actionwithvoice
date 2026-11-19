@@ -19,6 +19,7 @@ import os
 import re
 import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 import uuid
@@ -28,7 +29,7 @@ from typing import Callable
 
 from . import visuals
 from .brain import Result
-from .rewrite import Rewriter
+from .rewrite import Rewriter, tidy
 
 JST = timezone(timedelta(hours=9))
 HANDOFF = "@クロード"
@@ -90,6 +91,99 @@ CHAT_RE = re.compile(
     r"|今何時|いま何時|何時|今日は何日|今日何日|何日|何曜日|今日は何曜日)"
 )
 CHAT_MAX = 20  # これより長い文は、あいさつで始まっても質問とみなす
+
+# 参照先の指定（プロンプト変換で Claude に添える、先に見る Cmd のファイル）
+# 振り分けルールの延長：言葉とファイルの対応で決める（7B の推定には頼らない。Notes/音声連携.md「プロンプト変換はコードで支える」）
+# {today} は今日のデイリー（YYYY/MM/DD/デイリー.md）。明日・来週の水曜・11月20日などの日付は said_dates でその日のデイリーにする
+# ほかのファイルは Cmd にあるものだけ添える
+REF_RULES: list[tuple[re.Pattern, list[str]]] = [
+    (re.compile(r"体重|減量|ダイエット|痩|やせ|太"), ["Notes/体の記録.md", "Projects/減量.md"]),
+    (re.compile(r"気分|体調|調子"), ["{today}", "Notes/体の記録.md"]),
+    (re.compile(r"筋トレ|トレーニング|ベンチ|スクワット|デッド|ジム"),
+     ["Notes/筋トレの記録.md", "Notes/筋トレの計画.md", "Data/kintore/sets.csv"]),
+    (re.compile(r"習慣|毎日確認|続いて|サボ"), ["Notes/毎日確認.md", "{today}"]),
+    (re.compile(r"家計|残高|明細|支払|口座|カード|お金|使った|出費|支出|収入|給料"),
+     ["Data/kakei.json", "Notes/家計の配分分析.md"]),
+    (re.compile(r"貯金|貯め|引越|引っ越"), ["Projects/引越し貯金.md", "Notes/資産目標.md"]),
+    (re.compile(r"資産|投資"), ["Notes/資産目標.md"]),
+    (re.compile(r"副業|案件|クラウドワークス|ランサーズ"), ["Projects/副業.md"]),
+    (re.compile(r"試験|応用情報|勉強"), ["Projects/応用情報技術者試験.md"]),
+    (re.compile(r"服|クローゼット|コーデ"), ["Notes/クローゼット.md"]),
+    (re.compile(r"レイ|Ray|音声|振り分け", re.I), ["Notes/音声連携.md"]),
+    (re.compile(r"AIに頼|ＡＩに頼"), ["Notes/AIに頼むこと.md"]),
+    (re.compile(r"インボックス|inbox", re.I), ["Inbox.md"]),
+    (re.compile(r"やること|タスク|ToDo|todo", re.I), ["{today}", "Inbox.md"]),
+    (re.compile(r"予定|カレンダー|今日|きょう|デイリー|日記|メモ"), ["{today}"]),
+]
+REF_MAX = 4  # 添えるファイルの数
+_RELDAY_RE = re.compile(r"一昨日|おととい|明後日|あさって|今日|きょう|明日|あした|昨日|きのう")
+_RELDAYS = {"一昨日": -2, "おととい": -2, "明後日": 2, "あさって": 2, "今日": 0, "きょう": 0,
+            "明日": 1, "あした": 1, "昨日": -1, "きのう": -1}
+_WEEKDAY_RE = re.compile(r"(今週|来週|再来週|先週)?の?([月火水木金土日])曜")
+_MD_RE = re.compile(r"(?:(\d{4})[-/年])?(\d{1,2})[/月](\d{1,2})日?|(\d{4})-(\d{1,2})-(\d{1,2})")
+
+
+def said_dates(text: str, now: datetime | None = None) -> list[str]:
+    """発話の中の日付（明日、来週の水曜、11月20日、2026-11-20 など）を YYYY-MM-DD にする（出てきた順）"""
+    t = unicodedata.normalize("NFKC", text)
+    n = _now(now).date()
+    out: list[tuple[int, str]] = []
+    for m in _MD_RE.finditer(t):
+        y, mo, da = (m.group(4), m.group(5), m.group(6)) if m.group(4) else (m.group(1), m.group(2), m.group(3))
+        try:
+            d = n.replace(year=int(y or n.year), month=int(mo), day=int(da))
+        except ValueError:
+            continue
+        out.append((m.start(), d.isoformat()))
+    for m in _RELDAY_RE.finditer(t):
+        out.append((m.start(), (n + timedelta(days=_RELDAYS[m.group(0)])).isoformat()))
+    for m in _WEEKDAY_RE.finditer(t):
+        wd = WEEKDAYS.index(m.group(2))
+        week = {"今週": 0, "来週": 1, "再来週": 2, "先週": -1}.get(m.group(1) or "")
+        if week is None:  # 「水曜」だけ：今日から数えて次に来るその曜日
+            d = n + timedelta(days=(wd - n.weekday()) % 7)
+        else:
+            d = n - timedelta(days=n.weekday()) + timedelta(days=7 * week + wd)
+        out.append((m.start(), d.isoformat()))
+    seen: list[str] = []
+    for _, d in sorted(out):
+        if d not in seen:
+            seen.append(d)
+    return seen
+
+
+def ref_paths(text: str, cmd_dir: str | Path, now: datetime | None = None) -> list[str]:
+    """発話の言葉から、Claude が先に見るとよい Cmd のファイルを決める（ルールの順。同じものは1回）"""
+    root = Path(cmd_dir).expanduser()
+    n = _now(now)
+    days = {k: (n + timedelta(days=d)).strftime("%Y/%m/%d") + "/デイリー.md"
+            for k, d in (("today", 0),)}
+    found: list[str] = []
+
+    def add(rel: str) -> None:
+        if rel not in found and len(found) < REF_MAX:
+            found.append(rel)
+
+    dates = said_dates(text, n)
+    for d in dates[:3]:  # 日付を言ったときは、その日のデイリー
+        add(d.replace("-", "/") + "/デイリー.md")
+    for rule, paths in REF_RULES:
+        if rule.search(text):
+            for p in paths:
+                if p == "{today}" and dates:
+                    continue  # 日付を言ったときは、その日のデイリーだけ（上で足した）
+                if p.startswith("{"):
+                    add(days[p.strip("{}")])  # デイリーは、まだ無くても添える（Claude が作る先）
+                elif (root / p).exists():
+                    add(p)
+    # ノートやプロジェクトの名前をそのまま言ったときは、そのファイル
+    for folder in ("Projects", "Notes"):
+        d = root / folder
+        if d.is_dir():
+            for f in sorted(d.glob("*.md"), key=lambda f: -len(f.stem)):
+                if len(f.stem) >= 2 and f.stem.lower() in text.lower():
+                    add(f"{folder}/{f.name}")
+    return found
 
 
 def is_chat(text: str) -> bool:
@@ -554,7 +648,11 @@ class HybridBrain:
         rw = None
         session = self.claude_session
         if not confirmed:
-            rw = self.rewriter.convert(text, everything, self.unseen,
+            # 参照先はコードのルールで決める（今の発話に無ければ、直前の質問から）
+            # 下ごしらえした文で見る（言い直して消した日付や、呼びかけの「レイ」を拾わないため）
+            refs = ref_paths(tidy(text), self.cfg["cmd_dir"]) or (
+                ref_paths(tidy(everything[-1][0]), self.cfg["cmd_dir"]) if everything else [])
+            rw = self.rewriter.convert(text, everything, self.unseen, refs=refs,
                                        ready=lambda: self.use_local and self.local.loaded())
             if self.cut.is_set():
                 return Result(answer="", session_id=self.conv, is_error=True, by="claude")

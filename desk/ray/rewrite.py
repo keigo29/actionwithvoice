@@ -1,14 +1,19 @@
-"""プロンプト変換：Claude に回す前に、ローカル LLM（Ollama の 7B）が入力を短い依頼に書き直す
+"""プロンプト変換：Claude に回す前に、長い発話・長い履歴を短い依頼にする
 
-Cmd の Notes/音声連携.md「7B によるプロンプト変換（2026-11-19）」の方針：
-- 目的は Claude 側の消費（ファイルの探し回りと、履歴の読み直し）を減らすこと
-- 変換の中身は3つ。質問の圧縮（話し言葉を簡潔な指示文に）、履歴の要約、参照先の指定（Cmd のどのファイルを見るか）
-- 数字・名前・日付などの固有情報は落とさない。出力は日本語だけ
-- 短い質問には変換をかけない（変換の時間の方が高くつく）。長い発話と、履歴が長いときだけ
-- 変換はローカルで完結させる（Mac の外には出さない）。失敗・空・おかしい・時間切れは、原文のまま Claude へ
+Cmd の Notes/音声連携.md「7B によるプロンプト変換」「プロンプト変換はコードで支える（2026-11-19 決定）」の方針：
+「抽出はコード → 整形は 7B → 検証はコード」。7B の足りないところは、前後をプログラムで固めて補う（14B は使わない）。
 
+1. 抽出（コード）
+   - 参照先：言葉と Cmd のファイルの対応ルールで決める（local.py の REF_RULES・ref_paths。振り分けルールの延長）
+   - 下ごしらえ：言いよどみ・呼びかけ・くり返し・言い直しを、モデルに渡す前にルールで落とす（tidy）
+2. 整形（7B）：意味を保った言い換えと、履歴の要約だけ。Ollama の format（JSON スキーマ）で形を固定する
+3. 検証（コード）：変換前の数字・日付・英語の名前が、変換後にも残っているか照合する（facts）
+   - 欠けていたら、原文を併記して Claude へ送る
+   - 壊れた JSON・空・日本語でない・元に無い数字を作った・時間切れなどは、原文のまま送る（変換で会話を止めない）
+
+変換はローカル（Ollama）だけで行い、Mac の外には出さない。
 履歴を要約したときは、Claude のセッションを続けずに（--resume しない）新しく始め、要約を渡す。
-続けると、Claude はこれまでのやり取りとファイルの中身を毎回読み直すため（未明の実績で消費の大半）。
+続けると、Claude はこれまでのやり取りと読んだファイルを毎回読み直すため（未明の実績で消費の大半）。
 """
 
 from __future__ import annotations
@@ -21,7 +26,6 @@ import unicodedata
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Callable
 
 from . import scenes
@@ -37,105 +41,182 @@ MIN_HISTORY_TURNS = 4       # 同じ会話のやり取りがこの数以上な�
 MIN_HISTORY_CHARS = 1200    # または、やり取りの字数の合計がこれ以上なら「履歴が長い」
 TIMEOUT = 10                # 変換にかけてよい秒数。超えたら原文で送る
 FRESH_SESSION = True        # 履歴を要約したら、Claude のセッションを新しく始める（読み直しを減らす）
-MAX_REFS = 3                # 添える参照先の数
 HISTORY_TURNS = 12          # 要約に渡す直前のやり取りの数
 ANSWER_CHARS = 300          # 要約に渡す答え1つあたりの字数
-NUM_PREDICT = 400           # 変換の出力の上限（トークン）
+NUM_PREDICT = 300           # 変換の出力の上限（トークン）
 
 INSTRUCTION_MAX = 120       # 指示文の字数の目安（モデルへの指示）
 SUMMARY_MAX = 200           # 要約の字数の目安（モデルへの指示）
 
 KEYS = ("enabled", "min_chars", "min_history_turns", "min_history_chars", "timeout", "fresh_session")
 
-REWRITE_PROMPT = """あなたは、音声アシスタント「レイ」の下書き係です。持ち主の話し言葉と、これまでのやり取りを、クロードに渡す短い依頼に書き直します。あなたは質問に答えません。
+# Ollama の format（構造化出力）。7B の出力の形をここで固定する
+SCHEMA = {
+    "type": "object",
+    "properties": {"依頼": {"type": "string"}, "要約": {"type": "string"}},
+    "required": ["依頼", "要約"],
+}
+
+REWRITE_PROMPT = """あなたは、音声アシスタント「レイ」の下書き係です。持ち主の発話を、クロードに渡す短い依頼の文に言い換えます。あなたは質問に答えません。
 今は__NOW__です。
-次の形の JSON だけを出してください。ほかには何も書かないこと。
-{"依頼": "…", "要約": "…", "参照": ["…"]}
-- 依頼：今の発話を、簡潔な指示文に直す。言いよどみ、あいづち、くり返しは消す。頼まれていないことは足さない。__INSTRUCTION_MAX__字以内
+出すのは JSON だけ：{"依頼": "…", "要約": "…"}
+- 依頼：今の発話を、意味を変えずに、簡潔な指示文に言い換える。頼まれていないことは足さない。__INSTRUCTION_MAX__字以内
 - 要約：これまでのやり取りのうち、今の依頼に関係することだけを短くまとめる。__SUMMARY_MAX__字以内。やり取りが無ければ空の文字列
-- 参照：クロードが先に見るとよい Cmd のファイルを、下の一覧から__MAX_REFS__つまで。一覧にないものは書かない。分からなければ空の配列
 決まり（いちばん大事）
-- 数字、金額、名前、日付、時刻、曜日、ファイル名、固有名詞は、一つも落とさず、そのまま書く
+- 数字、金額、日付、曜日、時刻、名前、固有名詞は、一つも落とさず、書いてあるとおりに写す。数字を漢数字に変えない
+- 「さっきのやつ」「それ」などは、これまでのやり取りから何のことかを書く
 - 日本語だけで書く。中国語や英語に訳さない。発話にある英語の名前だけは、そのまま書いてよい
 例
-発話：えーっとさ、あのー、来週の水曜の19時からの飲み会、あれって誰と行くんだっけ、メモに書いたと思うんだけど
-出力：{"依頼": "来週水曜19時からの飲み会に誰と行くか、メモから調べて答える", "要約": "", "参照": ["__DAILY__"]}
-Cmd のファイルの一覧（→ の後は中身の目安）：
-__FILES__
+発話：来週の水曜の19時からの飲み会、誰と行くんだっけ、メモに書いた、ちょっと見てくれる？
+出力：{"依頼": "来週水曜19時からの飲み会に誰と行くか、メモを見て答える", "要約": ""}
 """
 
-# ファイルの中身の目安（一覧に添えて、7B が選びやすくする）
-HINTS = {
-    "Inbox.md": "行き先の決まっていないやること",
-    "README.md": "書き方の決まり",
-    "CLAUDE.md": "AI 向けの決まり",
-    "Data/kakei.json": "家計のデータ",
-    "Data/kintore": "筋トレの記録（sets.csv）",
-    "Data/health": "体重・歩数などの健康データ",
-    "Data/closet": "クローゼットのデータ",
-    "Data/memo": "メモアプリから取り込んだメモ",
-    "Data/ray": "Ray との会話の記録",
-    "Data/voice": "iPhone の音声メモ",
-}
+# ---------------------------------------------------------------- 1. 下ごしらえ（コード）
+
+_ADDRESS = re.compile(r"^\s*(?:ねえ|ねぇ|おい)?[、,\s]*(?:レイ|れい|Ray)[、,\s]+", re.I)
+_FILLERS = re.compile(
+    r"(?:え[ー〜]+っと|えっと|え[ー〜]+と|ええと)(?:さ|ね)?[、,]?|え[ー〜]+[、,]|あの[ー〜]+(?:さ|ね)?[、,]?|あのね[、,]?|あの[、,]"
+    r"|う[ー〜]+ん[、,]?|うんと[、,]|なんか[、,]|まあ[、,]|まぁ[、,]|その[ー〜]+[、,]?|ほら[、,]|ちょっと[、,]"
+)
+_HEDGES = re.compile(r"(?:と思うんだけど|と思うんですけど|なんだけど|なんですけど|んだけど|んですけど)(?:さ|ね)?(?=[、,。？?]|$)")
+_CORRECTION = re.compile(r"(^|[、。])[^、。]{1,10}[、,]\s*いや[、,\s]*")   # 「水曜、いや木曜の」→「木曜の」
+_REPEAT_COMMA = re.compile(r"([^、。]{2,12})[、,]\s*\1")                 # 「今日の、今日の」→「今日の」
+_REPEAT = re.compile(r"([^\d\s、。]{3,8}?)\1+")                          # 「今日の今日の」→「今日の」
+_COMMAS = re.compile(r"[、,]\s*(?=[、,。？?])|^[、,\s]+|[、,\s]+$")
+
+
+def tidy(text: str) -> str:
+    """モデルに渡す前に、言いよどみ・呼びかけ・くり返し・言い直しを落とす（数字は消さない）"""
+    t = _ADDRESS.sub("", text.strip())
+    t = _FILLERS.sub("", t)
+    t = _HEDGES.sub("", t)
+    t = _CORRECTION.sub(r"\1", t)
+    t = _REPEAT_COMMA.sub(r"\1", t)
+    t = _REPEAT.sub(r"\1", t)
+    t = re.sub(r"[、,]{2,}", "、", t)
+    t = _COMMAS.sub("", t)
+    return t.strip() or text.strip()
+
+
+# ---------------------------------------------------------------- 3. 検証（コード）
 
 _KANA = re.compile(r"[぀-ヿ]")
 _LATIN = re.compile(r"[A-Za-z][A-Za-z0-9._\-]+")
-_DIGITS = re.compile(r"\d+")
 _BAD = re.compile(r"[@＠](?:クロード|画面)|[가-힯]")  # 振り分けの合図・画面の指示・ハングル
+_ARABIC = re.compile(r"\d+(?:\.\d+)?(万)?")
+_KANJI_NUM = re.compile(r"(?<![\d〇零一二三四五六七八九十百千万])([〇零一二三四五六七八九十百千万]*[〇零一二三四五六七八九十百千][〇零一二三四五六七八九十百千万]*)(?=時|分|日|月|年|円|キロ|回|人|個|件|週|歳|秒|ページ|問|点|倍|か月|ヶ月|カ月)")
+_KANA_DAYS = {"あした": "明日", "きょう": "今日", "きのう": "昨日", "あさって": "明後日", "おととい": "一昨日"}
+_DAY_WORDS = re.compile(r"一昨日|明後日|今日|明日|昨日|再来週|今週|来週|先週|今月|来月|先月|今年|来年|去年|週末|平日|午前|午後")
+_WEEKDAY = re.compile(r"([月火水木金土日])曜")
+_KD = {c: i for i, c in enumerate("〇一二三四五六七八九")}
+_KD["零"] = 0
 
 
-def settings(cfg: dict) -> dict:
-    """モジュールの定数を既定にして、config.toml の [rewrite] で上書きする"""
-    s = {k: globals()[k.upper()] for k in KEYS}
-    s.update({k: v for k, v in (cfg.get("rewrite") or {}).items() if k in KEYS})
-    return s
+def _kanji_int(s: str) -> int | None:
+    total, section, digit = 0, 0, None
+    for ch in s:
+        if ch in _KD:
+            digit = _KD[ch] if digit is None else digit * 10 + _KD[ch]
+        elif ch in "十百千":
+            section += (digit if digit is not None else 1) * {"十": 10, "百": 100, "千": 1000}[ch]
+            digit = None
+        elif ch == "万":
+            total += (section + (digit or 0)) * 10000
+            section, digit = 0, None
+        else:
+            return None
+    return total + section + (digit or 0)
 
 
-def _now(now: datetime | None = None) -> datetime:
-    return (now or datetime.now(JST)).astimezone(JST)
+def _num(s: str) -> str:
+    """数の書き方をそろえる（"01" と "1"、"70.50" と "70.5" は同じ）"""
+    if "." in s:
+        return s.rstrip("0").rstrip(".")
+    return str(int(s))
 
 
-def _now_text(now: datetime | None = None) -> str:
-    n = _now(now)
-    return f"{n.year}年{n.month}月{n.day}日（{WEEKDAYS[n.weekday()]}）{n.hour}時{n.minute}分"
+def _norm(text: str) -> str:
+    t = unicodedata.normalize("NFKC", text)
+    for k, v in _KANA_DAYS.items():
+        t = t.replace(k, v)
+    return t
 
 
-def _norm(s: str) -> str:
-    return unicodedata.normalize("NFKC", s)
-
-
-def daily_path(now: datetime | None = None) -> str:
-    return _now(now).strftime("%Y/%m/%d") + "/デイリー.md"
-
-
-def ref_candidates(cmd_dir: str | Path, now: datetime | None = None) -> dict[str, str]:
-    """参照先に選んでよいファイル（パス → 中身の目安）。7B が勝手なパスを作らないよう、一覧から選ばせる"""
-    root = Path(cmd_dir).expanduser()
-    n = _now(now)
-    out: dict[str, str] = {}
-
-    def add(rel: str, hint: str = "") -> None:
-        out.setdefault(rel, hint or HINTS.get(rel, ""))
-
-    add(daily_path(n), "今日のデイリー（今日のやること・予定・メモ・気分・体重）")
-    add(daily_path(n - timedelta(days=1)), "昨日のデイリー")
-    day = root / n.strftime("%Y/%m/%d")
-    if day.is_dir():
-        for p in sorted(day.glob("*.md")):
-            add(p.relative_to(root).as_posix(), "今日のノート")
-    for name in ("Inbox.md", "README.md"):
-        if (root / name).exists():
-            add(name)
-    for folder in ("Notes", "Projects"):
-        for p in sorted((root / folder).glob("*.md")):
-            add(p.relative_to(root).as_posix(), "プロジェクト（やること・期限）" if folder == "Projects" else "")
-    data = root / "Data"
-    if data.is_dir():
-        for p in sorted(data.iterdir()):
-            if not p.name.startswith("."):
-                add(p.relative_to(root).as_posix())
+def numbers(text: str) -> list[str]:
+    t = _norm(text)
+    out = []
+    for m in _ARABIC.finditer(t):
+        v = m.group(0).rstrip("万")
+        out.append(str(int(float(v) * 10000)) if m.group(1) else _num(v))
+    for m in _KANJI_NUM.finditer(t):
+        v = _kanji_int(m.group(1))
+        if v is not None:
+            out.append(str(v))
     return out
 
+
+def facts(text: str) -> list[str]:
+    """落としてはいけない固有情報：数字（漢数字も数に直す）・日付の言葉・曜日・英語の名前"""
+    t = _norm(text)
+    out = [f"数 {n}" for n in numbers(t)]
+    out += [f"日 {m.group(0)}" for m in _DAY_WORDS.finditer(t)]
+    out += [f"曜 {m.group(1)}" for m in _WEEKDAY.finditer(t)]
+    out += [f"名 {w.lower()}" for w in _LATIN.findall(t)]
+    seen: list[str] = []
+    for f in out:
+        if f not in seen:
+            seen.append(f)
+    return seen
+
+
+def missing_facts(before: str, after: str) -> list[str]:
+    """変換前にあって、変換後に無い固有情報"""
+    have = set(facts(after))
+    return [f for f in facts(before) if f not in have]
+
+
+def _parse(raw: str) -> dict | None:
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        obj = json.loads(raw)
+    except json.JSONDecodeError:
+        m = re.search(r"\{.*\}", raw, re.S)  # 前後に余計な文がついたとき
+        if not m:
+            return None
+        try:
+            obj = json.loads(m.group(0))
+        except json.JSONDecodeError:
+            return None
+    return obj if isinstance(obj, dict) else None
+
+
+def check(obj: dict | None, question: str, source: str, need_summary: bool) -> tuple[dict | None, str]:
+    """7B の出力を確かめる。使えなければ (None, 理由)。使えれば (結果, "")。結果の missing は欠けた固有情報"""
+    if obj is None:
+        return None, "invalid_json"
+    inst = str(obj.get("依頼") or obj.get("instruction") or "").strip()
+    summ = str(obj.get("要約") or obj.get("summary") or "").strip()
+    if not inst:
+        return None, "empty"
+    if not _KANA.search(inst) or (summ and not _KANA.search(summ)):
+        return None, "not_japanese"   # かなが無い＝中国語か英語になっている
+    if _BAD.search(inst) or _BAD.search(summ):
+        return None, "bad_marker"
+    src = _norm(source).lower()
+    if any(w.lower() not in src for w in _LATIN.findall(_norm(inst + " " + summ))):
+        return None, "not_japanese"   # 元に無い英語が出てきた
+    if set(numbers(inst + " " + summ)) - set(numbers(source)):
+        return None, "invented_number"  # 元に無い数字を作った（取り違え）
+    if len(inst) > max(len(question) * 1.2, len(question) + 40):
+        return None, "too_long"
+    if need_summary and not summ:
+        return None, "no_summary"
+    return {"instruction": inst, "summary": summ, "missing": missing_facts(question, inst)}, ""
+
+
+# ---------------------------------------------------------------- 組み立て
 
 def history_text(history: list[tuple[str, str]], turns: int = HISTORY_TURNS, answer_chars: int = ANSWER_CHARS) -> str:
     lines = []
@@ -159,83 +240,42 @@ def unseen_prompt(unseen: list[tuple[str, str]], text: str) -> str:
     return f"（ここまでのやり取り）\n{lines}\n（今の質問）\n{text}"
 
 
-def _parse(raw: str) -> dict | None:
-    raw = (raw or "").strip()
-    if not raw:
-        return None
-    try:
-        obj = json.loads(raw)
-    except json.JSONDecodeError:
-        m = re.search(r"\{.*\}", raw, re.S)  # 前後に余計な文がついたとき
-        if not m:
-            return None
-        try:
-            obj = json.loads(m.group(0))
-        except json.JSONDecodeError:
-            return None
-    return obj if isinstance(obj, dict) else None
-
-
-def check(obj: dict | None, question: str, source: str, candidates: dict[str, str],
-          need_summary: bool) -> tuple[dict | None, str]:
-    """変換の結果を確かめる。おかしければ (None, 理由)。よければ (整えた結果, "")"""
-    if obj is None:
-        return None, "invalid_json"
-    inst = str(obj.get("依頼") or obj.get("instruction") or "").strip()
-    summ = str(obj.get("要約") or obj.get("summary") or "").strip()
-    refs = obj.get("参照") or obj.get("refs") or []
-    if not inst:
-        return None, "empty"
-    if not _KANA.search(inst) or (summ and not _KANA.search(summ)):
-        return None, "not_japanese"   # かなが無い＝中国語か英語になっている
-    if _BAD.search(inst) or _BAD.search(summ):
-        return None, "bad_marker"
-    # 固有情報：発話の数字と英語の名前は、指示文に全部残っていること
-    q, i = _norm(question), _norm(inst)
-    if any(d not in i for d in _DIGITS.findall(q)):
-        return None, "lost_number"
-    il = i.lower()
-    if any(w.lower() not in il for w in _LATIN.findall(q)):
-        return None, "lost_name"
-    # 英語に流れていないか：指示文・要約の英語は、もとの発話かやり取りにあるものだけ
-    src = _norm(source).lower()
-    if any(w.lower() not in src for w in _LATIN.findall(_norm(inst + " " + summ))):
-        return None, "not_japanese"
-    # 縮んでいない（話をふくらませた）ものは使わない
-    if len(inst) > max(len(question) * 1.2, len(question) + 40):
-        return None, "too_long"
-    if need_summary and not summ:
-        return None, "no_summary"
-    if not isinstance(refs, list):
-        refs = [refs]
-    clean = []
-    for r in refs:
-        r = str(r).strip().lstrip("/").removeprefix("Cmd/")
-        if r in candidates and r not in clean:
-            clean.append(r)
-    return {"instruction": inst, "summary": summ, "refs": clean[:MAX_REFS]}, ""
-
-
-def build_prompt(parts: dict, include_summary: bool) -> str:
-    """Claude に渡す依頼の文"""
+def build_prompt(parts: dict, refs: list[str], include_summary: bool, original: str = "") -> str:
+    """Claude に渡す依頼の文。original があれば併記する（まとめで固有情報が欠けたとき）"""
     lines = ["（Ray が持ち主の話を短くまとめた依頼。足りなければ調べてください）"]
     if include_summary and parts["summary"]:
         lines.append(f"これまでの話：{parts['summary']}")
     lines.append(f"依頼：{parts['instruction']}")
-    if parts["refs"]:
-        lines.append("先に見るファイル：" + "、".join(parts["refs"]))
+    if refs:
+        lines.append("先に見るファイル：" + "、".join(refs))
+    if original:
+        lines.append(f"持ち主の言葉（まとめで抜けた所があるので、こちらを正とする）：{original}")
     return "\n".join(lines)
+
+
+def settings(cfg: dict) -> dict:
+    """モジュールの定数を既定にして、config.toml の [rewrite] で上書きする"""
+    s = {k: globals()[k.upper()] for k in KEYS}
+    s.update({k: v for k, v in (cfg.get("rewrite") or {}).items() if k in KEYS})
+    return s
+
+
+def _now_text(now: datetime) -> str:
+    n = now.astimezone(JST)
+    return f"{n.year}年{n.month}月{n.day}日（{WEEKDAYS[n.weekday()]}）{n.hour}時{n.minute}分"
 
 
 @dataclass
 class Rewrite:
-    prompt: str | None = None     # 変換した依頼（変換しないとき・失敗したときは None）
+    prompt: str | None = None     # Claude に渡す文（変換しないとき・失敗したときは None ＝原文のまま）
     fresh: bool = False           # Claude のセッションを新しく始めるか
     log: dict = field(default_factory=dict)
 
 
+# ---------------------------------------------------------------- 2. 整形（7B）
+
 class Rewriter:
-    """Ollama の /api/chat（流さない・JSON で出させる）で、依頼を書き直す"""
+    """Ollama の /api/chat（流さない・JSON スキーマで形を固定）で、言い換えと要約だけをさせる"""
 
     def __init__(self, cfg: dict, urlopen=urllib.request.urlopen, clock=time.monotonic,
                  now: Callable[[], datetime] | None = None):
@@ -262,7 +302,7 @@ class Rewriter:
         return "+".join(reasons)
 
     def convert(self, text: str, history: list[tuple[str, str]], unseen: list[tuple[str, str]],
-                ready: Callable[[], bool] = lambda: True) -> Rewrite:
+                refs: list[str] | None = None, ready: Callable[[], bool] = lambda: True) -> Rewrite:
         """変換した依頼を返す。どんな失敗でも例外は出さず、prompt=None（原文で送る）にする"""
         s = settings(self.cfg)
         original = unseen_prompt(unseen, text)
@@ -273,14 +313,18 @@ class Rewriter:
             log["reason"] = "short" if s["enabled"] else "disabled"
             return Rewrite(log=log)
         log["reason"] = reason
+        log["before"] = original
         if not ready():
             log["error"] = "local_not_ready"
             return Rewrite(log=log)
         long_history = "long_history" in reason
+        refs = list(refs or [])
+        # 1. 下ごしらえ（コード）。言い直し（「水曜、いや木曜」）の訂正も含むので、検証はこの文と比べる
+        tidied = tidy(text)
+        log["tidied"] = tidied
         start = self.clock()
         try:
-            candidates = ref_candidates(self.cfg["cmd_dir"], self.now())
-            raw = self._call(text, history if long_history else [], candidates, s["timeout"])
+            raw = self._call(tidied, history if long_history else [], s["timeout"])
         except TimeoutError:
             log["error"] = "timeout"
             raw = None
@@ -291,36 +335,33 @@ class Rewriter:
         if raw is None:
             log.setdefault("error", "cancelled" if self.cancelled.is_set() else "empty")
             return Rewrite(log=log)
-        source = text + "\n" + history_text(history) + "\n" + "\n".join(candidates)  # 一覧のパスは英字でもよい
-        parts, why = check(_parse(raw), text, source, candidates, need_summary=long_history)
+        # 3. 検証（コード）
+        source = text + "\n" + history_text(history)
+        parts, why = check(_parse(raw), tidied, source, need_summary=long_history)
         if parts is None:
             log["error"] = why
             log["raw"] = raw[:500]
             return Rewrite(log=log)
+        missing = parts["missing"]
         fresh = long_history and s["fresh_session"]
-        if fresh:
-            prompt = build_prompt(parts, include_summary=True)
-        else:
-            # 履歴は今の Claude のセッションが知っている。知らない分だけ、これまでどおり添える
-            prompt = unseen_prompt(unseen, build_prompt(parts, include_summary=False))
-        log.update(applied=True, after_chars=len(prompt), fresh_session=fresh, refs=parts["refs"],
-                   instruction=parts["instruction"], summary=parts["summary"])
+        body = build_prompt(parts, refs, include_summary=fresh, original=text if missing else "")
+        # 続けるときは、履歴は今の Claude のセッションが知っている。知らない分だけ、これまでどおり添える
+        prompt = body if fresh else unseen_prompt(unseen, body)
+        log.update(applied=True, after=prompt, after_chars=len(prompt), fresh_session=fresh, refs=refs,
+                   instruction=parts["instruction"], summary=parts["summary"],
+                   missing=missing, with_original=bool(missing))
         return Rewrite(prompt=prompt, fresh=fresh, log=log)
 
-    def _call(self, text: str, history: list[tuple[str, str]], candidates: dict[str, str],
-              timeout: float) -> str | None:
+    def _call(self, text: str, history: list[tuple[str, str]], timeout: float) -> str | None:
         """別の糸で呼び、timeout 秒で打ち切る（ソケットの待ちだけでは全体の時間を区切れないため）"""
         self.cancelled.clear()
         self.done.clear()
         system = (REWRITE_PROMPT
                   .replace("__NOW__", _now_text(self.now()))
                   .replace("__INSTRUCTION_MAX__", str(INSTRUCTION_MAX))
-                  .replace("__SUMMARY_MAX__", str(SUMMARY_MAX))
-                  .replace("__MAX_REFS__", str(MAX_REFS))
-                  .replace("__DAILY__", daily_path(self.now()))
-                  .replace("__FILES__", "\n".join(f"- {p}" + (f" → {h}" if h else "") for p, h in candidates.items())))
+                  .replace("__SUMMARY_MAX__", str(SUMMARY_MAX)))
         user = (f"（これまでのやり取り）\n{history_text(history)}\n" if history else "") + f"（今の発話）\n{text}"
-        body = {"model": self.c["model"], "stream": False, "format": "json", "keep_alive": self.c["keep_alive"],
+        body = {"model": self.c["model"], "stream": False, "format": SCHEMA, "keep_alive": self.c["keep_alive"],
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
                 "options": {"temperature": 0, "num_ctx": self.c["num_ctx"], "num_predict": NUM_PREDICT}}
         req = urllib.request.Request(self.c["url"].rstrip("/") + "/api/chat", json.dumps(body).encode(),
