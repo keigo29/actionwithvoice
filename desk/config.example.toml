@@ -36,6 +36,8 @@ min_history_turns = 4        # 同じ会話のやり取りがこの数以上な�
 min_history_chars = 1200     # または、やり取りの字数の合計がこれ以上なら
 timeout = 10                 # この秒数で変換が終わらなければ、原文のまま Claude へ
 fresh_session = true         # 履歴を要約したら --resume せずに始める（履歴とファイルの読み直しを減らす）
+templates = true             # やることの追加・記録・予定の確認は、テンプレで依頼にする（7B を呼ばない）
+templates_on_short = true    # テンプレは短い質問にも使う
 
 [gemini]
 enabled = true               # Gemini の無料枠（有料枠は使わない）。鍵が無ければ、この段は飛ばして Claude

@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 
-from . import scenes
+from . import scenes, templates
 
 JST = timezone(timedelta(hours=9))
 WEEKDAYS = "月火水木金土日"
@@ -45,10 +45,14 @@ HISTORY_TURNS = 12          # 要約に渡す直前のやり取りの数
 ANSWER_CHARS = 300          # 要約に渡す答え1つあたりの字数
 NUM_PREDICT = 300           # 変換の出力の上限（トークン）
 
+TEMPLATES = True            # 決まった頼みごと（やることの追加・記録・予定の確認）は、テンプレで依頼にする（templates.py）
+TEMPLATES_ON_SHORT = True   # テンプレは短い質問にも使う（コードだけで 7B を呼ばないので、待ちが増えない）
+
 INSTRUCTION_MAX = 120       # 指示文の字数の目安（モデルへの指示）
 SUMMARY_MAX = 200           # 要約の字数の目安（モデルへの指示）
 
-KEYS = ("enabled", "min_chars", "min_history_turns", "min_history_chars", "timeout", "fresh_session")
+KEYS = ("enabled", "min_chars", "min_history_turns", "min_history_chars", "timeout", "fresh_session",
+        "templates", "templates_on_short")
 
 # Ollama の format（構造化出力）。7B の出力の形をここで固定する
 SCHEMA = {
@@ -309,6 +313,16 @@ class Rewriter:
         log = {"applied": False, "question_chars": len(text), "history_turns": len(history),
                "history_chars": history_chars(history), "before_chars": len(original)}
         reason = self.should(text, history)
+        # 0. テンプレ（コードだけ）：当たれば 7B は呼ばない。Claude のセッションはそのまま続ける
+        if s["enabled"] and s["templates"] and (reason or s["templates_on_short"]):
+            tidied = tidy(text)
+            t = templates.match(tidied, self.cfg["cmd_dir"], self.now())
+            if t:
+                prompt = unseen_prompt(unseen, t.prompt)
+                log.update(applied=True, reason=reason or "template", template=t.name, slots=t.slots,
+                           before=original, tidied=tidied, after=prompt, after_chars=len(prompt),
+                           fresh_session=False, missing=missing_facts(tidied, t.prompt), with_original=False)
+                return Rewrite(prompt=prompt, fresh=False, log=log)
         if not reason:
             log["reason"] = "short" if s["enabled"] else "disabled"
             return Rewrite(log=log)
