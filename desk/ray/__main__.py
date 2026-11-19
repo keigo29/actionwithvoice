@@ -36,7 +36,8 @@ def make_brain(cfg: dict):
     claude = Brain(cfg)
     if not (cfg["local"]["enabled"] or cfg["gemini"]["enabled"]):
         return claude
-    brain = HybridBrain(cfg, claude)
+    from .local import GeminiBrain
+    brain = HybridBrain(cfg, claude, gemini=GeminiBrain(cfg, store=GEMINI_COUNT_FILE))
     brain.warm()  # 裏で読み込んでおく（読み終わるまでは Claude が答える）
     atexit.register(brain.close)  # Ray を止めたら、メモリから外す
     return brain
@@ -191,6 +192,7 @@ class _Tee:
 
 
 LOG_FILE = Path(__file__).resolve().parent.parent / "ray.log"
+GEMINI_COUNT_FILE = Path(__file__).resolve().parent.parent / "gemini-count.json"
 
 
 def start_log(path: Path = LOG_FILE):
@@ -230,8 +232,12 @@ def run(cfg: dict, use_ui: bool) -> None:
     voice_no = iter(range(1, 10**9))
     speaker = Speaker(cfg, on_voice=lambda env, step: hub.set(voice={"id": next(voice_no), "step": step, "env": env}))
     sfx = Sfx(cfg)
-    assistant = Assistant(cfg, make_brain(cfg), speaker, hub, sfx=sfx)
+    brain = make_brain(cfg)
+    assistant = Assistant(cfg, brain, speaker, hub, sfx=sfx)
     if use_ui and cfg["ui"]["enabled"]:
+        from .usage import UsageWatcher
+        if cfg["ui"].get("usage", True):
+            UsageWatcher(hub, gemini=getattr(brain, "gemini", None)).start()
         serve(hub, cfg["ui"]["port"])
         url = f"http://localhost:{cfg['ui']['port']}/"
         print(f"状態の画面：{url}")

@@ -13,6 +13,12 @@ DEFAULTS: dict = {
     "hotkey": "alt_r",
     # 最後のやり取りからこの秒数以内なら、前の話の続きとして聞く
     "conversation_timeout": 300,
+    # 返事が6文・決まった場面の数を超えても、「続き」「次」と言わずに最後まで話して見せる
+    # （途中で止めたいときはキーを押す）。false で、6文で止めて「続き」を待つ
+    "auto_continue": True,
+    # 自己改善：頼まれたら Ray が自分のコード（このリポジトリ）を書きかえてよい。
+    # dir を空にすると、このリポジトリ。コミット・push は確認してから。desk/config.toml は読み書きさせない
+    "self_improve": {"enabled": True, "dir": ""},
     "stt": {
         # auto / mlx / whisper_cpp
         "engine": "auto",
@@ -46,6 +52,7 @@ DEFAULTS: dict = {
         "api_key": "",
         "model": "gemini-flash-lite-latest",  # Flash-Lite（1日500回）。Flash（1日20回）は温存する
         "search": True,          # 調べものも Google 検索つきで Gemini に任せる
+        "search_daily_limit": 0, # 検索つきの1日の上限（別の枠）。分かったら書く。0 は「不明」（上限のエラーで止める）
         "max_sources": 5,        # 調べたときに画面に出すページの数
         "daily_limit": 450,      # 念のため、無料枠（500回）より少し手前で止める
         "reset_hour": 17,        # 無料枠が日本時間の何時に戻るか
@@ -76,7 +83,8 @@ DEFAULTS: dict = {
         "silence_sec": 1.2,
         "max_sec": 15,
     },
-    "ui": {"enabled": True, "port": 8765, "open_browser": True},
+    # usage：Claude（Pro の枠）と Gemini（無料枠）の残りを画面の隅に出す
+    "ui": {"enabled": True, "port": 8765, "open_browser": True, "usage": True},
     # 天気の場所（open-meteo）
     "weather": {"place": "横浜", "latitude": 35.44, "longitude": 139.64},
     # 会話の記録。Data/voice/ にすると Cmd の Actions がデイリーに書き足すので、別の場所に置く

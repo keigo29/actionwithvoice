@@ -493,16 +493,45 @@ class GeminiBrain(_Cancelable):
     API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse"
 
     def __init__(self, cfg: dict, urlopen=urllib.request.urlopen, now=lambda: datetime.now(JST),
-                 env: dict | None = None):
+                 env: dict | None = None, store: Path | None = None):
         super().__init__()
         self.c = cfg["gemini"]
+        self.store = store       # 使った回数を残すファイル（Ray を起動し直しても数え直さない）
         self.urlopen = urlopen
         self.now = now
         env = os.environ if env is None else env
         self.key = self.c.get("api_key") or env.get("GEMINI_API_KEY") or env.get("GOOGLE_API_KEY") or ""
         self.day = None          # 枠の「日」（日本時間17時で切り替わる）
         self.count = 0
+        self.search_count = 0    # そのうち検索つき（別の枠）
         self.exhausted_day = None
+        self.search_exhausted_day = None  # 検索つきだけ上限に当たった日（ふつうの質問は使える）
+        self._load()
+
+    def _load(self) -> None:
+        if not (self.store and self.store.exists()):
+            return
+        try:
+            d = json.loads(self.store.read_text())
+            day = datetime.fromisoformat(d["day"]).date()
+        except (OSError, ValueError, KeyError, TypeError):
+            return
+        if day == self._quota_day():
+            self.day, self.count = day, int(d.get("count", 0))
+            self.search_count = int(d.get("search_count", 0))
+            self.exhausted_day = day if d.get("exhausted") else None
+            self.search_exhausted_day = day if d.get("search_exhausted") else None
+
+    def _save(self) -> None:
+        if not (self.store and self.day):
+            return
+        try:
+            self.store.write_text(json.dumps({"day": self.day.isoformat(), "count": self.count,
+                                              "search_count": self.search_count,
+                                              "exhausted": self.exhausted_day == self.day,
+                                              "search_exhausted": self.search_exhausted_day == self.day}))
+        except OSError:
+            pass
 
     def _quota_day(self):
         return (_now(self.now()) - timedelta(hours=self.c["reset_hour"])).date()
@@ -512,14 +541,22 @@ class GeminiBrain(_Cancelable):
             return False
         day = self._quota_day()
         if day != self.day:
-            self.day, self.count = day, 0
+            self.day, self.count, self.search_count = day, 0, 0
         return self.exhausted_day != day and self.count < self.c["daily_limit"]
+
+    def search_available(self) -> bool:
+        limit = self.c.get("search_daily_limit", 0)
+        return (self.c["search"] and self.search_exhausted_day != self._quota_day()
+                and not (limit and self.search_count >= limit))
 
     def ask(self, history: list[tuple[str, str]], text: str, on_text: Callable[[str], None],
             search: bool = False, data: str = "") -> str | None:
-        if not self.available() or (search and not self.c["search"]):
+        if not self.available() or (search and not self.search_available()):
             return None
         self.count += 1
+        if search:
+            self.search_count += 1
+        self._save()
         contents = []
         for q, a in history[-self.c["history"]:]:
             contents += [{"role": "user", "parts": [{"text": q}]}, {"role": "model", "parts": [{"text": a}]}]
@@ -555,9 +592,15 @@ class GeminiBrain(_Cancelable):
         try:
             resp = self.urlopen(req, timeout=self.c["timeout"])
         except urllib.error.HTTPError as e:
-            if e.code == 429:
+            if e.code == 429 and search:
+                # 検索つき（Google 検索での裏づけ）は、ふつうの質問と別の枠。ふつうの質問はそのまま使う
+                print("Gemini の検索つきの無料枠の上限に当たりました（日本時間17時まで、調べものは Claude に回します）")
+                self.search_exhausted_day = self._quota_day()
+                self._save()
+            elif e.code == 429:
                 print("Gemini の無料枠の上限に当たりました（日本時間17時まで Claude に回します）")
                 self.exhausted_day = self._quota_day()
+                self._save()
             else:
                 print(f"Gemini がエラーを返しました（{e.code}）")
             return None
@@ -702,8 +745,9 @@ class HybridBrain:
         if not confirmed:
             # 参照先はコードのルールで決める（今の発話に無ければ、直前の質問から）
             # 下ごしらえした文で見る（言い直して消した日付や、呼びかけの「レイ」を拾わないため）
-            refs = ref_paths(tidy(text), self.cfg["cmd_dir"]) or (
-                ref_paths(tidy(everything[-1][0]), self.cfg["cmd_dir"]) if everything else [])
+            now = self.rewriter.now()  # 変換と同じ時計で日付を決める（「今日」「明日」のデイリー）
+            refs = ref_paths(tidy(text), self.cfg["cmd_dir"], now) or (
+                ref_paths(tidy(everything[-1][0]), self.cfg["cmd_dir"], now) if everything else [])
             rw = self.rewriter.convert(text, everything, self.unseen, refs=refs,
                                        ready=lambda: self.use_local and self.local.loaded())
             if self.cut.is_set():

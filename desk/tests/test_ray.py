@@ -35,6 +35,16 @@ class BrainTest(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
         self.assertEqual(cmd[cmd.index("--effort") + 1], "low")
 
+    def test_build_command_can_edit_itself_but_not_its_key(self):
+        cmd = brain.build_command(cfg())
+        me = str(brain.SELF_DIR)
+        self.assertEqual(cmd[cmd.index("--add-dir") + 1], me)
+        self.assertIn(f"Read(/{me}/desk/config.toml)", cmd)
+        self.assertTrue((brain.SELF_DIR / "desk" / "ray" / "brain.py").exists())
+        c = cfg()
+        c["self_improve"]["enabled"] = False
+        self.assertNotIn("--add-dir", brain.build_command(c))
+
     def test_build_command_can_use_defaults_and_mcp(self):
         c = cfg()
         c["claude"].update(model="", effort="", mcp=True)

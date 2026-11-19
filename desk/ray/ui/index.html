@@ -204,6 +204,21 @@
   .diagram .hl-node rect, .diagram .hl-node polygon, .diagram .hl-node circle, .diagram .hl-node path.basic {
     stroke: var(--hi) !important; stroke-width: 3px !important; fill: color-mix(in srgb, var(--hi) 22%, #1b2030) !important; }
   .diagram pre { white-space: pre-wrap; color: var(--muted); }
+
+  /* 使える残り（Claude の Pro 枠・Gemini の無料枠） */
+  #usage { position: fixed; right: 20px; bottom: 18px; display: grid; gap: 10px; width: 250px;
+    font-size: 12px; color: var(--muted); letter-spacing: .04em; }
+  #usage:empty { display: none; }
+  body.stage-on #usage { display: none; }
+  #usage .u { background: color-mix(in srgb, var(--panel) 80%, transparent); border: 1px solid var(--line); border-radius: 10px; padding: 8px 11px; }
+  #usage .uh { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
+  #usage .uh b { color: var(--fg); font-weight: 700; letter-spacing: .14em; }
+  #usage .ur { display: grid; grid-template-columns: 4.2em 1fr 3.2em; gap: 8px; align-items: center; margin-top: 3px; }
+  #usage .ur .v { text-align: right; color: var(--fg); font-variant-numeric: tabular-nums; }
+  #usage .track { height: 5px; }
+  #usage .fill.ok { background: var(--good); } #usage .fill.mid { background: var(--hi); } #usage .fill.low { background: var(--bad); }
+  #usage .rs { font-size: 11px; opacity: .8; margin-top: 4px; }
+  header.bar .meta .um { font-size: 11px; opacity: .85; margin-top: 2px; }
   @media (prefers-reduced-motion: reduce) { .hud *, #stage { animation: none !important; } #stage, header.bar .say, header.bar .meta { transition: none; } }
 </style>
 </head>
@@ -218,10 +233,11 @@
     <header class="bar">
       <div class="hud" id="orb2" data-state="idle"></div>
       <div class="say" id="say"></div>
-      <div class="meta"><div id="label2"></div><div id="page"></div></div>
+      <div class="meta"><div id="label2"></div><div id="page"></div><div class="um" id="usage2"></div></div>
     </header>
     <main id="stage"></main>
   </div>
+<div id="usage"></div>
 <script>
 const LABELS = { idle: "待機中", listening: "聞いています", thinking: "考えています", speaking: "話しています", confirm: "確認待ち（はい／いいえ）" };
 const $ = (id) => document.getElementById(id);
@@ -533,6 +549,50 @@ function takeVoice(s) {
   }
 }
 
+/* ---------- 使える残り ---------- */
+function hhmm(iso) { if (!iso) return ""; const t = new Date(iso); return isNaN(t) ? "" : `${t.getHours()}:${String(t.getMinutes()).padStart(2, "0")}`; }
+function whenBack(iso) {
+  if (!iso) return ""; const t = new Date(iso); if (isNaN(t)) return "";
+  const days = Math.round((new Date(t.toDateString()) - new Date(new Date().toDateString())) / 864e5);
+  return (days === 0 ? "" : days === 1 ? "明日 " : `${t.getMonth() + 1}/${t.getDate()} `) + hhmm(iso);
+}
+function uRow(name, pct, val) {
+  const cls = pct > 50 ? "ok" : pct > 20 ? "mid" : "low";
+  return `<div class="ur"><span>${name}</span><div class="track"><div class="fill ${cls}" style="width:${Math.max(0, Math.min(100, pct))}%"></div></div><span class="v">${val}</span></div>`;
+}
+function renderUsage(u) {
+  if (!u) { $("usage").innerHTML = ""; $("usage2").textContent = ""; return; }
+  const c = u.claude || {}, g = u.gemini;
+  let html = "", short = [];
+  if (c.ok) {
+    const f = c.five_hour, w = c.seven_day;
+    const resets = [f && f.resets_at ? `5時間枠 ${whenBack(f.resets_at)}` : "", w && w.resets_at ? `週 ${whenBack(w.resets_at)}` : ""].filter(Boolean).join("・");
+    html += `<div class="u"><div class="uh"><b>CLAUDE</b><span>Pro の残り</span></div>
+      ${f ? uRow("5時間", f.left, f.left + "%") : ""}${w ? uRow("1週間", w.left, w.left + "%") : ""}
+      ${resets ? `<div class="rs">戻る：${esc(resets)}</div>` : ""}</div>`;
+    short.push(`Claude ${f ? f.left + "%" : "?"}${w ? " / 週" + w.left + "%" : ""}`);
+  } else {
+    html += `<div class="u"><div class="uh"><b>CLAUDE</b><span>残り不明</span></div><div class="rs">${esc(c.why || "")}</div></div>`;
+    short.push("Claude 不明");
+  }
+  if (g) {
+    if (g.ok) {
+      html += `<div class="u"><div class="uh"><b>GEMINI</b><span>無料枠の残り</span></div>
+        ${uRow("ふつう", 100 * g.left / g.limit, g.left + "回")}
+        ${!g.search_on ? "" : g.search_limit
+          ? uRow("検索", g.search ? 100 * (g.search_limit - g.search_used) / g.search_limit : 0, (g.search ? Math.max(0, g.search_limit - g.search_used) : 0) + "回")
+          : `<div class="ur"><span>検索</span><span>${g.search ? `今日 ${g.search_used}回 使用` : "上限（調べものは Claude）"}</span><span class="v">${g.search ? "" : "0回"}</span></div>`}
+        <div class="rs">ふつう ${g.limit}回まで・${g.reset_hour}:00 に戻る</div></div>`;
+      short.push(`Gemini ${g.left}回${g.search_on ? (g.search ? (g.search_limit ? ` / 検索${Math.max(0, g.search_limit - g.search_used)}回` : "") : " / 検索0回") : ""}`);
+    } else {
+      html += `<div class="u"><div class="uh"><b>GEMINI</b><span>${esc(g.why || "")}</span></div></div>`;
+    }
+  }
+  $("usage").innerHTML = html;
+  $("usage2").textContent = short.join("・");
+}
+let lastUsage = "";
+
 /* ---------- 状態を受け取る ---------- */
 let lastScene = "";
 function apply(s) {
@@ -545,6 +605,7 @@ function apply(s) {
   $("q").textContent = s.question ? "🎙 " + s.question : "";
   $("say").textContent = s.text || "";
   document.body.classList.toggle("zoom", !!s.zoom);
+  const uk = JSON.stringify(s.usage || null); if (uk !== lastUsage) { renderUsage(s.usage); lastUsage = uk; }
   const on = !!s.scene;
   setStage(on);
   if (on) {
