@@ -8,14 +8,16 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap">
 <style>
-  /* CP Mono：Mac に入っているものを使う。無ければ desk/ray/ui/fonts/ に置いたファイルを使う */
-  @font-face { font-family: "CP Mono"; font-weight: 400; font-display: swap;
-    src: local("CPMono_v07 Plain"), local("CPMono_v07-Plain"), local("CPMono_v07"), url("/fonts/CPMono_v07_Plain.otf") format("opentype"); }
-  @font-face { font-family: "CP Mono"; font-weight: 300; font-display: swap;
+  /* CP Mono（v07）を英数字・記号にいちばん優先して使う。日本語は Zen Kaku Gothic New のまま（unicode-range で英数字の範囲だけ CP Mono）
+     探す順：Mac に入っている CP Mono（いくつかの名前で探す）→ desk/ray/ui/fonts/ に置いたファイル */
+  @font-face { font-family: "CP Mono"; font-weight: 400; font-display: swap; unicode-range: U+0000-024F, U+2000-206F, U+20A0-20CF, U+2100-21FF, U+2200-22FF;
+    src: local("CPMono_v07 Plain"), local("CPMono_v07-Plain"), local("CPMono_v07 Regular"), local("CPMono_v07-Regular"), local("CPMono_v07"),
+         url("/fonts/CPMono_v07_Plain.otf") format("opentype"); }
+  @font-face { font-family: "CP Mono"; font-weight: 300; font-display: swap; unicode-range: U+0000-024F, U+2000-206F, U+20A0-20CF, U+2100-21FF, U+2200-22FF;
     src: local("CPMono_v07 Light"), local("CPMono_v07-Light"), url("/fonts/CPMono_v07_Light.otf") format("opentype"); }
-  @font-face { font-family: "CP Mono"; font-weight: 700; font-display: swap;
+  @font-face { font-family: "CP Mono"; font-weight: 700; font-display: swap; unicode-range: U+0000-024F, U+2000-206F, U+20A0-20CF, U+2100-21FF, U+2200-22FF;
     src: local("CPMono_v07 Bold"), local("CPMono_v07-Bold"), url("/fonts/CPMono_v07_Bold.otf") format("opentype"); }
-  @font-face { font-family: "CP Mono"; font-weight: 900; font-display: swap;
+  @font-face { font-family: "CP Mono"; font-weight: 900; font-display: swap; unicode-range: U+0000-024F, U+2000-206F, U+20A0-20CF, U+2100-21FF, U+2200-22FF;
     src: local("CPMono_v07 Black"), local("CPMono_v07-Black"), local("CPMono_v07 Bold"), url("/fonts/CPMono_v07_Black.otf") format("opentype"), url("/fonts/CPMono_v07_Bold.otf") format("opentype"); }
   :root {
     --bg: #0b0d12; --panel: #141821; --panel2: #1b2030; --line: #283044;
@@ -23,8 +25,9 @@
     /* 基本の色はオレンジ寄り。確認待ちだけは赤（オレンジと見分けるため） */
     --idle: #ff6a1a; --listening: #ff7d2e; --thinking: #ff6a1a; --speaking: #ff8c42; --confirm: #ff2d55;
     --neon: #ff6a1a; --neon2: #ffa463; --ring: rgba(255, 240, 228, .78);
-    --font: "CP Mono", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif;
-    --font-mono: "CP Mono", "Zen Kaku Gothic New", ui-monospace, Menlo, monospace;
+    /* 先頭が CP Mono（上の @font-face）。それでも見つからないときのために、Mac に入っている名前（CPMono_v07）も次に置く */
+    --font: "CP Mono", "CPMono_v07", "CPMono_v07 Plain", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif;
+    --font-mono: "CP Mono", "CPMono_v07", "CPMono_v07 Plain", "Zen Kaku Gothic New", ui-monospace, Menlo, monospace;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
@@ -232,8 +235,9 @@
   [data-theme="blueprint"] .hud .halo { inset: 8%; background: radial-gradient(circle, rgba(196, 112, 58, calc(.10 * var(--glow))) 0%, transparent 70%); }
   [data-theme="blueprint"] .hud .beam { height: 1px; background: linear-gradient(90deg, transparent, var(--ring) 15%, var(--ring) 85%, transparent); box-shadow: none; }
   [data-theme="blueprint"] .hud[data-state="idle"] .beam { opacity: .55; }
-  [data-theme="blueprint"] .hud .name b { font: 700 calc(var(--size) * .036)/1 var(--font-mono); letter-spacing: .5em; margin-right: -.5em;
-    color: var(--fg); text-shadow: none; transform: translateY(calc(var(--size) * .128)); animation: none; }
+  /* まん中は絵を置かず、RAY の文字だけ（正面から見たとき） */
+  [data-theme="blueprint"] .hud .name b { font: 700 calc(var(--size) * .072)/1 var(--font-mono); letter-spacing: .32em; margin-right: -.32em;
+    color: var(--fg); text-shadow: none; transform: none; animation: none; }
   [data-theme="blueprint"] .hud svg text { fill: var(--fg); font: 600 7px var(--font-mono); letter-spacing: .08em; }
   [data-theme="blueprint"] .hud .vbars { opacity: calc(.18 + .82 * var(--voice, 0)); }
   [data-theme="blueprint"] .hud[data-state="speaking"]:not(.voiced) .vbars { animation: shine 1.8s ease-in-out infinite alternate; }
@@ -435,7 +439,7 @@ function loadMermaid() {
     const sc = document.createElement("script");
     sc.src = MERMAID_URL; sc.onload = () => {
       window.mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict",
-        fontFamily: '"CP Mono", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif',
+        fontFamily: '"CP Mono", "CPMono_v07", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif',
         themeVariables: { background: "#0b0d12", primaryColor: "#1b2030", primaryBorderColor: "#4a5cff",
           primaryTextColor: "#e8eaf0", lineColor: "#8a90a2", fontSize: "18px" } });
       ok(window.mermaid);
@@ -529,8 +533,6 @@ function buildBlueprint(el, { name = true } = {}) {
   const ink = 'stroke="var(--ring)" fill="none"';
   const blocks = (r, n, w, h) => Array.from({ length: n }, (_, i) => { const a = i * 360 / n;
     return `<rect x="${200 - w / 2}" y="${200 - r - h / 2}" width="${w}" height="${h}" transform="rotate(${a} 200 200)" fill="var(--fg)"/>`; }).join("");
-  const lobes = [45, 135, 225, 315].map((a) => { const cx = 200 + 158 * Math.cos(a * Math.PI / 180), cy = 200 + 158 * Math.sin(a * Math.PI / 180);
-    return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="30" ${ink} stroke-width=".7" stroke-dasharray="70 40"/>`; }).join("");
   el.innerHTML =
     '<div class="halo"></div><div class="drift">' +
     // 外の目盛りと方位の数字
@@ -538,10 +540,10 @@ function buildBlueprint(el, { name = true } = {}) {
       ringSvg(`<g class="spin" style="--t:120s"><circle cx="200" cy="200" r="194" ${ink} stroke-width=".8"/>
         <g stroke="var(--ring)" stroke-width=".6">${ticks(184, 190, 180, 10, 6)}</g>
         ${radialText(176, [[-90, "000"], [0, "090"], [90, "180"], [180, "270"], [-45, "N-E"], [135, "S-W"]])}</g>`)) +
-    // 点線の輪・小さな四角・4つの膨らみ
+    // 点線の輪・小さな四角
     L("--d:.12s;--ix:-14.3%;--iy:8.2%;--iz:-30deg;--iy3:62deg;--is:.66",
       ringSvg(`<g class="spin" style="--t:70s;--dir:reverse"><circle cx="200" cy="200" r="166" ${ink} stroke-width=".9" stroke-dasharray="1.5 4"/>
-        ${blocks(166, 12, 7, 3)}${lobes}</g>`)) +
+        ${blocks(166, 12, 7, 3)}</g>`)) +
     // 区切りの入った輪と、銅色の差し色
     L("--d:.20s;--ix:4.8%;--iy:-2.7%;--iz:-30deg;--iy3:62deg;--is:.66",
       ringSvg(`<g class="spin seg" style="--t:40s"><circle cx="200" cy="200" r="146" ${ink} stroke-width="1.2" stroke-dasharray="70 5 22 5 40 5 110 5 30 5 90 5"/>
@@ -553,16 +555,15 @@ function buildBlueprint(el, { name = true } = {}) {
       ringSvg(`<g class="spin" style="--t:28s;--dir:reverse"><circle cx="200" cy="200" r="124" ${ink} stroke-width=".9"/>
         <g stroke="var(--ring)" stroke-width=".7">${ticks(112, 120, 120, 6, 5)}</g>
         ${radialText(130, [[-120, "R-01"], [30, "R-02"], [150, "R-03"]])}</g>`)) +
-    // まん中：内側の輪・声に合わせて濃くなる放射の線・中心の星形
+    // まん中：内側の輪・声に合わせて濃くなる放射の線（中心は RAY の文字だけ）
     L("--d:0s;--ix:-4.8%;--iy:2.7%;--iz:-30deg;--iy3:62deg;--is:.66",
       ringSvg(`<g class="core"><circle cx="200" cy="200" r="100" fill="rgba(246,249,249,.75)" stroke="var(--neon)" stroke-width="1.6"/>
         <circle cx="200" cy="200" r="88" ${ink} stroke-width=".8" stroke-dasharray="3 3"/>
         <g class="vbars" stroke="var(--copper)" stroke-width="2">${ticks(64, 80, 72, 3, 4)}</g>
-        <g stroke="var(--fg)" stroke-width="1.2">${ticks(10, 30, 16, 2, 12)}</g>
-        <circle cx="200" cy="200" r="7" fill="none" stroke="var(--fg)" stroke-width="1.4"/><circle cx="200" cy="200" r="2.6" fill="var(--fg)"/></g>`)) +
+        </g>`)) +
     // 十字の線と点
     L("--d:.24s;--ix:23.8%;--iy:-13.7%;--iz:-30deg;--iy3:62deg;--is:.66",
-      ringSvg(`<g stroke="var(--ring)" stroke-width=".6" stroke-dasharray="2 5"><line x1="-20" y1="200" x2="420" y2="200"/><line x1="200" y1="-20" x2="200" y2="420"/></g>
+      ringSvg(`<g stroke="var(--ring)" stroke-width=".6" stroke-dasharray="2 5"><path d="M -20 200 H 96 M 304 200 H 420 M 200 -20 V 96 M 200 304 V 420"/></g>
         <g class="spin" style="--t:150s" fill="var(--fg)" opacity=".7">${dots(22, 200, 222, 11)}</g>`), "side-dim") +
     '</div>' +
     '<div class="beam"></div>' +
