@@ -8,14 +8,16 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap">
 <style>
-  /* CP Mono：Mac に入っているものを使う。無ければ desk/ray/ui/fonts/ に置いたファイルを使う */
-  @font-face { font-family: "CP Mono"; font-weight: 400; font-display: swap;
-    src: local("CPMono_v07 Plain"), local("CPMono_v07-Plain"), local("CPMono_v07"), url("/fonts/CPMono_v07_Plain.otf") format("opentype"); }
-  @font-face { font-family: "CP Mono"; font-weight: 300; font-display: swap;
+  /* CP Mono（v07）を英数字・記号にいちばん優先して使う。日本語は Zen Kaku Gothic New のまま（unicode-range で英数字の範囲だけ CP Mono）
+     探す順：Mac に入っている CP Mono（いくつかの名前で探す）→ desk/ray/ui/fonts/ に置いたファイル */
+  @font-face { font-family: "CP Mono"; font-weight: 400; font-display: swap; unicode-range: U+0000-024F, U+2000-206F, U+20A0-20CF, U+2100-21FF, U+2200-22FF;
+    src: local("CPMono_v07 Plain"), local("CPMono_v07-Plain"), local("CPMono_v07 Regular"), local("CPMono_v07-Regular"), local("CPMono_v07"),
+         url("/fonts/CPMono_v07_Plain.otf") format("opentype"); }
+  @font-face { font-family: "CP Mono"; font-weight: 300; font-display: swap; unicode-range: U+0000-024F, U+2000-206F, U+20A0-20CF, U+2100-21FF, U+2200-22FF;
     src: local("CPMono_v07 Light"), local("CPMono_v07-Light"), url("/fonts/CPMono_v07_Light.otf") format("opentype"); }
-  @font-face { font-family: "CP Mono"; font-weight: 700; font-display: swap;
+  @font-face { font-family: "CP Mono"; font-weight: 700; font-display: swap; unicode-range: U+0000-024F, U+2000-206F, U+20A0-20CF, U+2100-21FF, U+2200-22FF;
     src: local("CPMono_v07 Bold"), local("CPMono_v07-Bold"), url("/fonts/CPMono_v07_Bold.otf") format("opentype"); }
-  @font-face { font-family: "CP Mono"; font-weight: 900; font-display: swap;
+  @font-face { font-family: "CP Mono"; font-weight: 900; font-display: swap; unicode-range: U+0000-024F, U+2000-206F, U+20A0-20CF, U+2100-21FF, U+2200-22FF;
     src: local("CPMono_v07 Black"), local("CPMono_v07-Black"), local("CPMono_v07 Bold"), url("/fonts/CPMono_v07_Black.otf") format("opentype"), url("/fonts/CPMono_v07_Bold.otf") format("opentype"); }
   :root {
     --bg: #0b0d12; --panel: #141821; --panel2: #1b2030; --line: #283044;
@@ -23,8 +25,9 @@
     /* 基本の色はオレンジ寄り。確認待ちだけは赤（オレンジと見分けるため） */
     --idle: #ff6a1a; --listening: #ff7d2e; --thinking: #ff6a1a; --speaking: #ff8c42; --confirm: #ff2d55;
     --neon: #ff6a1a; --neon2: #ffa463; --ring: rgba(255, 240, 228, .78);
-    --font: "CP Mono", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif;
-    --font-mono: "CP Mono", "Zen Kaku Gothic New", ui-monospace, Menlo, monospace;
+    /* 先頭が CP Mono（上の @font-face）。それでも見つからないときのために、Mac に入っている名前（CPMono_v07）も次に置く */
+    --font: "CP Mono", "CPMono_v07", "CPMono_v07 Plain", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif;
+    --font-mono: "CP Mono", "CPMono_v07", "CPMono_v07 Plain", "Zen Kaku Gothic New", ui-monospace, Menlo, monospace;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
@@ -436,7 +439,7 @@ function loadMermaid() {
     const sc = document.createElement("script");
     sc.src = MERMAID_URL; sc.onload = () => {
       window.mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict",
-        fontFamily: '"CP Mono", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif',
+        fontFamily: '"CP Mono", "CPMono_v07", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif',
         themeVariables: { background: "#0b0d12", primaryColor: "#1b2030", primaryBorderColor: "#4a5cff",
           primaryTextColor: "#e8eaf0", lineColor: "#8a90a2", fontSize: "18px" } });
       ok(window.mermaid);
