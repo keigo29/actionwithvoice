@@ -227,6 +227,7 @@ def run(cfg: dict, use_ui: bool) -> None:
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     log = start_log()
     hub = StateHub()
+    hub.set(theme=cfg["ui"].get("theme", "neon"))  # 画面の見た目（URL の ?theme= があれば、そちらが優先）
     log_states(hub)
     # 鳴らし始めに、声の大きさの並びを画面へ送る（円の内側の光を発音に合わせて光らせる）
     voice_no = iter(range(1, 10**9))

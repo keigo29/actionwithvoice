@@ -70,6 +70,7 @@ max_sec = 15
 enabled = true
 port = 8765
 open_browser = true
+theme = "neon"               # 画面の見た目。neon（暗い背景・オレンジの光）／blueprint（明るい設計図風）。画面で T キーでも切り替えられる
 
 [weather]
 place = "横浜"               # 画面に出す天気の場所

@@ -84,7 +84,8 @@ DEFAULTS: dict = {
         "max_sec": 15,
     },
     # usage：Claude（Pro の枠）と Gemini（無料枠）の残りを画面の隅に出す
-    "ui": {"enabled": True, "port": 8765, "open_browser": True, "usage": True},
+    # theme：画面の見た目。neon（暗い背景・オレンジの光）／blueprint（明るい設計図風）
+    "ui": {"enabled": True, "port": 8765, "open_browser": True, "usage": True, "theme": "neon"},
     # 天気の場所（open-meteo）
     "weather": {"place": "横浜", "latitude": 35.44, "longitude": 139.64},
     # 会話の記録。Data/voice/ にすると Cmd の Actions がデイリーに書き足すので、別の場所に置く
