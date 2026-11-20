@@ -745,7 +745,7 @@ class HybridBrain:
         if not confirmed:
             # 参照先はコードのルールで決める（今の発話に無ければ、直前の質問から）
             # 下ごしらえした文で見る（言い直して消した日付や、呼びかけの「レイ」を拾わないため）
-            now = self.rewriter.now()  # 変換と同じ時計で日付を決める（「今日」「明日」のデイリー）
+            now = self.rewriter.now()  # 変換と同じ「今」で日付を決める
             refs = ref_paths(tidy(text), self.cfg["cmd_dir"], now) or (
                 ref_paths(tidy(everything[-1][0]), self.cfg["cmd_dir"], now) if everything else [])
             rw = self.rewriter.convert(text, everything, self.unseen, refs=refs,
