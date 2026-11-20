@@ -1,0 +1,130 @@
+"""読み上げ：声を書き出して大きさを測り、鳴らし始めに画面へ送る（発音に合わせて円の内側を光らせる）"""
+
+import array
+import math
+import tempfile
+import threading
+import unittest
+import wave
+from pathlib import Path
+
+from ray import config, speech
+
+
+def write_wav(path, parts, rate=22050):
+    """parts：[(秒, 大きさ0〜1)]。その長さの正弦波を順に書く"""
+    data = array.array("h")
+    for sec, amp in parts:
+        for i in range(int(sec * rate)):
+            data.append(int(amp * 30000 * math.sin(i * 2 * math.pi * 220 / rate)))
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
+        w.writeframes(data.tobytes())
+
+
+class EnvelopeTest(unittest.TestCase):
+    def test_loud_and_quiet_parts(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "v.wav"
+            write_wav(p, [(0.2, 1.0), (0.2, 0.0), (0.2, 0.25)])
+            env = speech.envelope(str(p))
+        self.assertEqual(len(env), 15)              # 0.6秒 ÷ 40ミリ秒
+        self.assertEqual(max(env[:5]), 1.0)         # いちばん大きいところが1
+        self.assertEqual(max(env[5:10]), 0.0)       # 無音
+        self.assertTrue(0.2 < env[12] < 0.5)        # 小さい声も少し持ち上げて見える
+
+
+class FakeProc:
+    def __init__(self, code=0, hold=None):
+        self.code, self.hold, self.killed = code, hold, False
+
+    def wait(self):
+        if self.hold:
+            self.hold.wait(2)
+        return self.code
+
+    def poll(self):
+        return None if self.hold and not self.hold.is_set() else self.code
+
+    def terminate(self):
+        self.killed = True
+        if self.hold:
+            self.hold.set()
+
+
+class LipsyncTest(unittest.TestCase):
+    def make(self, synth_ok=True, hold=None):
+        self.events = []
+        self.voices = []
+
+        def popen(cmd):
+            if cmd[0] == "say" and "-o" in cmd:
+                if synth_ok:
+                    write_wav(cmd[cmd.index("-o") + 1], [(0.08, 1.0), (0.08, 0.1)])
+                self.events.append(("synth", cmd[-1]))
+                return FakeProc(0 if synth_ok else 1)
+            self.events.append((cmd[0], cmd[-1]))
+            return FakeProc(hold=hold)
+
+        s = speech.Speaker(config.load("/nonexistent.toml"), popen=popen,
+                           on_voice=lambda env, step: self.voices.append((env, step)), which=lambda x: "/usr/bin/" + x)
+        return s
+
+    def test_writes_measures_then_plays_in_order(self):
+        s = self.make()
+        s.say("一つ目。")
+        s.say("二つ目。")
+        self.assertTrue(s.wait(timeout=3))
+        played = [e for e in self.events if e[0] == "afplay"]
+        self.assertEqual(len(played), 2)
+        self.assertEqual([e[1] for e in self.events if e[0] == "synth"], ["一つ目。", "二つ目。"])
+        self.assertEqual(len(self.voices), 2)       # 鳴らすたびに、声の大きさを送る
+        env, step = self.voices[0]
+        self.assertEqual(step, speech.LIPSYNC_STEP_MS)
+        self.assertEqual(env[0], 1.0)
+        self.assertLess(env[-1], 0.5)
+
+    def test_falls_back_to_say_when_writing_fails(self):
+        s = self.make(synth_ok=False)
+        s.say("読みます。")
+        self.assertTrue(s.wait(timeout=3))
+        self.assertIn(("say", "読みます。"), self.events)
+        self.assertEqual(self.voices, [])
+
+    def test_stop_cuts_current_and_waiting(self):
+        hold = threading.Event()
+        s = self.make(hold=hold)
+        s.say("長い文。")
+        s.say("次の文。")
+        for _ in range(100):
+            if any(e[0] == "afplay" for e in self.events):
+                break
+            threading.Event().wait(.02)
+        s.stop()
+        self.assertTrue(s.wait(timeout=1))
+        hold.set()
+        threading.Event().wait(.2)
+        self.assertEqual(len([e for e in self.events if e[0] == "afplay"]), 1)  # 次の文は鳴らさない
+
+    def test_without_on_voice_speaks_directly(self):
+        said = []
+
+        def popen(cmd):
+            said.append(cmd)
+            return FakeProc()
+
+        s = speech.Speaker(config.load("/nonexistent.toml"), popen=popen, which=lambda x: "/usr/bin/" + x)
+        s.say("そのまま。")
+        self.assertTrue(s.wait(timeout=2))
+        self.assertEqual(said[0][0], "say")
+        self.assertNotIn("-o", said[0])
+
+    def test_can_turn_off(self):
+        c = config.load("/nonexistent.toml")
+        c["tts"]["lipsync"] = False
+        s = speech.Speaker(c, on_voice=lambda *a: None, which=lambda x: "/usr/bin/" + x, popen=lambda cmd: FakeProc())
+        self.assertFalse(s.lipsync)
+
+
+if __name__ == "__main__":
+    unittest.main()

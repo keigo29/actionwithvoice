@@ -27,7 +27,8 @@ DEFAULTS: dict = {
         "whisper_cpp_model": "~/models/ggml-medium.bin",
         "language": "ja",
     },
-    "tts": {"voice": "Kyoko", "rate": 210},
+    # lipsync：声をいったん書き出して大きさを測り、画面の円の内側の光を発音に合わせて光らせる（false で say に直接）
+    "tts": {"voice": "Kyoko", "rate": 210, "lipsync": True},
     # 返事の速さ優先：Sonnet・考える量は少なめ・MCP（Discord や Google Drive など）は読み込まない
     # （Opus の既定より、ひとことで 4.4→2.3 秒、デイリーを読むので 9.2→4.7 秒に縮んだ）
     "claude": {"bin": "claude", "model": "sonnet", "effort": "low", "mcp": False, "timeout": 180},
