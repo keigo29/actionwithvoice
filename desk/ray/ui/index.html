@@ -232,8 +232,9 @@
   [data-theme="blueprint"] .hud .halo { inset: 8%; background: radial-gradient(circle, rgba(196, 112, 58, calc(.10 * var(--glow))) 0%, transparent 70%); }
   [data-theme="blueprint"] .hud .beam { height: 1px; background: linear-gradient(90deg, transparent, var(--ring) 15%, var(--ring) 85%, transparent); box-shadow: none; }
   [data-theme="blueprint"] .hud[data-state="idle"] .beam { opacity: .55; }
-  [data-theme="blueprint"] .hud .name b { font: 700 calc(var(--size) * .036)/1 var(--font-mono); letter-spacing: .5em; margin-right: -.5em;
-    color: var(--fg); text-shadow: none; transform: translateY(calc(var(--size) * .128)); animation: none; }
+  /* まん中は絵を置かず、RAY の文字だけ（正面から見たとき） */
+  [data-theme="blueprint"] .hud .name b { font: 700 calc(var(--size) * .072)/1 var(--font-mono); letter-spacing: .32em; margin-right: -.32em;
+    color: var(--fg); text-shadow: none; transform: none; animation: none; }
   [data-theme="blueprint"] .hud svg text { fill: var(--fg); font: 600 7px var(--font-mono); letter-spacing: .08em; }
   [data-theme="blueprint"] .hud .vbars { opacity: calc(.18 + .82 * var(--voice, 0)); }
   [data-theme="blueprint"] .hud[data-state="speaking"]:not(.voiced) .vbars { animation: shine 1.8s ease-in-out infinite alternate; }
@@ -553,16 +554,15 @@ function buildBlueprint(el, { name = true } = {}) {
       ringSvg(`<g class="spin" style="--t:28s;--dir:reverse"><circle cx="200" cy="200" r="124" ${ink} stroke-width=".9"/>
         <g stroke="var(--ring)" stroke-width=".7">${ticks(112, 120, 120, 6, 5)}</g>
         ${radialText(130, [[-120, "R-01"], [30, "R-02"], [150, "R-03"]])}</g>`)) +
-    // まん中：内側の輪・声に合わせて濃くなる放射の線・中心の星形
+    // まん中：内側の輪・声に合わせて濃くなる放射の線（中心は RAY の文字だけ）
     L("--d:0s;--ix:-4.8%;--iy:2.7%;--iz:-30deg;--iy3:62deg;--is:.66",
       ringSvg(`<g class="core"><circle cx="200" cy="200" r="100" fill="rgba(246,249,249,.75)" stroke="var(--neon)" stroke-width="1.6"/>
         <circle cx="200" cy="200" r="88" ${ink} stroke-width=".8" stroke-dasharray="3 3"/>
         <g class="vbars" stroke="var(--copper)" stroke-width="2">${ticks(64, 80, 72, 3, 4)}</g>
-        <g stroke="var(--fg)" stroke-width="1.2">${ticks(10, 30, 16, 2, 12)}</g>
-        <circle cx="200" cy="200" r="7" fill="none" stroke="var(--fg)" stroke-width="1.4"/><circle cx="200" cy="200" r="2.6" fill="var(--fg)"/></g>`)) +
+        </g>`)) +
     // 十字の線と点
     L("--d:.24s;--ix:23.8%;--iy:-13.7%;--iz:-30deg;--iy3:62deg;--is:.66",
-      ringSvg(`<g stroke="var(--ring)" stroke-width=".6" stroke-dasharray="2 5"><line x1="-20" y1="200" x2="420" y2="200"/><line x1="200" y1="-20" x2="200" y2="420"/></g>
+      ringSvg(`<g stroke="var(--ring)" stroke-width=".6" stroke-dasharray="2 5"><path d="M -20 200 H 96 M 304 200 H 420 M 200 -20 V 96 M 200 304 V 420"/></g>
         <g class="spin" style="--t:150s" fill="var(--fg)" opacity=".7">${dots(22, 200, 222, 11)}</g>`), "side-dim") +
     '</div>' +
     '<div class="beam"></div>' +
