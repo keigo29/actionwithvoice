@@ -47,7 +47,7 @@ def serve(hub: StateHub, port: int) -> ThreadingHTTPServer:
             pass
 
         def do_GET(self):
-            if self.path == "/":
+            if self.path.split("?", 1)[0] == "/":  # 「/?theme=blueprint」のように見た目を選べる
                 body = PAGE.read_bytes()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
