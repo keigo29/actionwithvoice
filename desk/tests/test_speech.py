@@ -1,6 +1,8 @@
 """読み上げ：声を書き出して大きさを測り、鳴らし始めに画面へ送る（発音に合わせて円の内側を光らせる）"""
 
 import array
+import io
+import json
 import math
 import tempfile
 import threading
@@ -9,6 +11,16 @@ import wave
 from pathlib import Path
 
 from ray import config, speech
+
+
+class FakeResp(io.BytesIO):
+    status = 200
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        pass
 
 
 def write_wav(path, parts, rate=22050):
@@ -124,6 +136,77 @@ class LipsyncTest(unittest.TestCase):
         c["tts"]["lipsync"] = False
         s = speech.Speaker(c, on_voice=lambda *a: None, which=lambda x: "/usr/bin/" + x, popen=lambda cmd: FakeProc())
         self.assertFalse(s.lipsync)
+
+
+class FakeVoicevox:
+    """VOICEVOX のエンジンの代わり（audio_query → synthesis）"""
+
+    def __init__(self, up=True):
+        self.up = up
+        self.calls = []
+
+    def __call__(self, req, timeout=None):
+        url = req if isinstance(req, str) else req.full_url
+        self.calls.append(url)
+        if not self.up:
+            raise OSError("connection refused")
+        if url.endswith("/version"):
+            return FakeResp(b'"0.22.0"')
+        if "/audio_query" in url:
+            return FakeResp(json.dumps({"speedScale": 1.0, "accent_phrases": []}).encode())
+        if "/synthesis" in url:
+            self.query = json.loads(req.data)
+            path = tempfile.mktemp(suffix=".wav")
+            write_wav(path, [(0.08, 1.0), (0.08, 0.2)])
+            return FakeResp(Path(path).read_bytes())
+        raise AssertionError(url)
+
+
+class ReadingTest(unittest.TestCase):
+    def test_ha_iru_is_read_as_wa(self):
+        self.assertEqual(speech.fix_reading("傘はいりません。"), "傘は要りません。")
+        self.assertEqual(speech.fix_reading("コートはいらないです"), "コートは要らないです")
+        self.assertEqual(speech.fix_reading("猫はいる。"), "猫はいる。")          # 居る：変えない
+        self.assertEqual(speech.fix_reading("部屋にはいります"), "部屋にはいります")  # 入る：変えない
+        self.assertEqual(speech.fix_reading("今日は晴れ"), "今日は晴れ")
+
+
+class VoicevoxTest(unittest.TestCase):
+    def make(self, up=True):
+        c = config.load("/nonexistent.toml")
+        c["tts"]["engine"] = "voicevox"
+        self.events, self.voices = [], []
+        self.vv = FakeVoicevox(up)
+
+        def popen(cmd):
+            self.events.append(cmd)
+            if cmd[0] == "say" and "-o" in cmd:
+                write_wav(cmd[cmd.index("-o") + 1], [(0.08, 1.0)])
+            return FakeProc()
+
+        return speech.Speaker(c, popen=popen, on_voice=lambda env, step: self.voices.append(env),
+                              which=lambda x: "/usr/bin/" + x, urlopen=self.vv)
+
+    def test_speaks_with_voicevox(self):
+        s = self.make()
+        s.say("こんにちは。")
+        self.assertTrue(s.wait(timeout=3))
+        self.assertTrue(any("/audio_query?" in u and "speaker=3" in u for u in self.vv.calls))
+        self.assertEqual(self.vv.query["speedScale"], 1.15)
+        self.assertEqual([c[0] for c in self.events], ["afplay"])   # say は使わない
+        self.assertEqual(len(self.voices), 1)                       # 画面の光も動く
+
+    def test_falls_back_to_say_and_starts_app_when_down(self):
+        import sys
+        from unittest import mock
+        with mock.patch.object(sys, "platform", "darwin"):
+            s = self.make(up=False)
+            s.say("読みます。")
+            self.assertTrue(s.wait(timeout=3))
+        threading.Event().wait(.1)
+        self.assertIn(["open", "-g", "-a", "VOICEVOX"], self.events)
+        self.assertTrue(any(c[0] == "say" and "-o" in c for c in self.events))
+        self.assertTrue(any(c[0] == "afplay" for c in self.events))
 
 
 if __name__ == "__main__":

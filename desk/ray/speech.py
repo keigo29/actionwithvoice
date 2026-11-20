@@ -1,8 +1,9 @@
-"""読み上げ（macOS の say）と、読み上げ向けの文の整形"""
+"""読み上げ（macOS の say か VOICEVOX）と、読み上げ向けの文の整形"""
 
 from __future__ import annotations
 
 import array
+import json
 import math
 import os
 import queue
@@ -12,6 +13,9 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
+import urllib.parse
+import urllib.request
 import wave
 from pathlib import Path
 from typing import Callable
@@ -61,6 +65,41 @@ def envelope(path: str, step_ms: int = LIPSYNC_STEP_MS) -> list[float]:
     return [round(min(1.0, (r / top) ** .7), 2) for r in rms]  # 小さめの音も見えるよう、少し持ち上げる
 
 
+# 「傘はいりません」を VOICEVOX は「傘 入りません（ハイリマセン）」と読む。漢字・カタカナのあとの「はいら／はいり」は
+# 「要る」にして、「は」を「わ」と読ませる（「いる」は「居る」もあるので変えない）
+_HA_IRU = re.compile(r"(?<=[一-龯々ァ-ヶー])はい(?=ら|り)")
+
+
+def fix_reading(text: str) -> str:
+    """声を作る前に、読み違えやすい書き方を直す"""
+    return _HA_IRU.sub("は要", text)
+
+
+def voicevox_wav(text: str, path: str, c: dict, urlopen=urllib.request.urlopen) -> bool:
+    """VOICEVOX（手元のアプリ）で声を作って WAVE に書き出す。だめなら False"""
+    base, spk = c["url"].rstrip("/"), str(c["speaker"])
+    q = urllib.parse.urlencode({"text": fix_reading(text), "speaker": spk})
+    with urlopen(urllib.request.Request(f"{base}/audio_query?{q}", data=b"", method="POST"), timeout=c["timeout"]) as r:
+        query = json.loads(r.read())
+    query["speedScale"] = c.get("speed", 1.0)
+    req = urllib.request.Request(f"{base}/synthesis?speaker={spk}", data=json.dumps(query).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    with urlopen(req, timeout=c["timeout"]) as r:
+        data = r.read()
+    if not data.startswith(b"RIFF"):
+        return False
+    Path(path).write_bytes(data)
+    return True
+
+
+def voicevox_up(c: dict, urlopen=urllib.request.urlopen) -> bool:
+    try:
+        with urlopen(c["url"].rstrip("/") + "/version", timeout=1) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
 class Speaker:
     """順番に読み上げる。stop() で今の読み上げと待ちを全部止める
 
@@ -71,12 +110,17 @@ class Speaker:
     """
 
     def __init__(self, cfg: dict, popen=subprocess.Popen, on_voice: Callable[[list[float], int], None] | None = None,
-                 which=shutil.which):
+                 which=shutil.which, urlopen=urllib.request.urlopen):
         self.voice = cfg["tts"]["voice"]
         self.rate = str(cfg["tts"]["rate"])
         self.popen = popen
         self.on_voice = on_voice
-        self.lipsync = bool(on_voice) and cfg["tts"].get("lipsync", True) and bool(which("afplay")) and bool(which("say"))
+        self.urlopen = urlopen
+        # VOICEVOX：声をファイルで受け取って afplay で鳴らす（だめな文は say で）
+        self.vv = cfg["tts"]["voicevox"] if cfg["tts"].get("engine") == "voicevox" and which("afplay") else None
+        self.vv_warned = False
+        self.lipsync = bool(self.vv) or (
+            bool(on_voice) and cfg["tts"].get("lipsync", True) and bool(which("afplay")) and bool(which("say")))
         self.q: queue.Queue = queue.Queue()
         self.ready: queue.Queue = queue.Queue(maxsize=2)  # 書き出し済みで、鳴らす番を待つもの
         self.proc = None
@@ -87,6 +131,8 @@ class Speaker:
         self.idle = threading.Event()
         self.idle.set()
         self.tmp = Path(tempfile.mkdtemp(prefix="ray-say-")) if self.lipsync else None
+        if self.vv:
+            threading.Thread(target=self._start_voicevox, daemon=True).start()
         if self.lipsync:
             threading.Thread(target=self._synth_loop, daemon=True).start()
             threading.Thread(target=self._play_loop, daemon=True).start()
@@ -126,6 +172,33 @@ class Speaker:
                 self._speak_direct(text)
             self._done_one(gen)
 
+    def _start_voicevox(self) -> None:
+        """VOICEVOX が起動していなければ、裏で起動しておく（準備できるまでの文は say で読む）"""
+        if voicevox_up(self.vv, self.urlopen) or sys.platform != "darwin":
+            return
+        try:
+            self.popen(["open", "-g", "-a", self.vv.get("app", "VOICEVOX")])
+        except Exception as e:  # 起動できなくても、say で読み上げる
+            print(f"VOICEVOX を起動できませんでした：{e}")
+
+    def _write(self, text: str, path: str) -> bool:
+        """1文の声をファイルに書き出す。VOICEVOX がだめなら say で書き出す"""
+        if self.vv:
+            try:
+                if voicevox_wav(text, path, self.vv, self.urlopen):
+                    return True
+            except Exception as e:
+                if not self.vv_warned:
+                    print(f"VOICEVOX で声を作れませんでした（Mac の声で読みます）：{e}")
+                    self.vv_warned = True
+        with self.lock:
+            self.synth = self.popen(["say", "-v", self.voice, "-r", self.rate, "--file-format=WAVE",
+                                     "--data-format=LEI16@22050", "-o", path, text])
+        ok = self.synth.wait() == 0
+        with self.lock:
+            self.synth = None
+        return ok
+
     def _synth_loop(self) -> None:
         n = 0
         while True:
@@ -136,12 +209,7 @@ class Speaker:
             path = str(self.tmp / f"{n % 8}.wav")
             env = None
             try:
-                with self.lock:
-                    self.synth = self.popen(["say", "-v", self.voice, "-r", self.rate, "--file-format=WAVE",
-                                             "--data-format=LEI16@22050", "-o", path, text])
-                ok = self.synth.wait() == 0
-                with self.lock:
-                    self.synth = None
+                ok = self._write(text, path)
                 env = envelope(path) if ok and os.path.exists(path) else None
             except Exception as e:  # 書き出せなくても、読み上げは止めない
                 print(f"声の書き出しに失敗しました（そのまま読み上げます）：{e}")
@@ -153,7 +221,8 @@ class Speaker:
             if gen == self.gen:
                 if path:
                     try:
-                        self.on_voice(env, LIPSYNC_STEP_MS)
+                        if self.on_voice:
+                            self.on_voice(env, LIPSYNC_STEP_MS)
                     except Exception:
                         pass
                     with self.lock:

@@ -13,6 +13,8 @@ from . import cmdlog, guard, scenes, shots, speech, stt, visuals
 from .audio import MIN_SEC, duration, save_wav
 from .brain import RESET_RE, classify_reply, is_confirm
 
+SOURCE_SHOTS = 3  # 調べたページの一覧で写真を撮る数（1件 数秒かかるので上位だけ）
+
 CONFIRMED_PROMPT = "はい、さきほど確認した操作を実行してください。終わったら結果を短く教えてください。"
 MORE_SCENES = "続きは、次と言ってください。"
 MORE_TEXT = "続きを聞くときは、続きと言ってください。"
@@ -194,6 +196,25 @@ class Assistant:
                     if 0 <= self.pos < len(self.deck) and self.deck[self.pos] is sc:
                         self._show(self.pos)
             threading.Thread(target=take, daemon=True).start()
+        elif sc.visual["kind"] == "sources":
+            # 調べたページの一覧：上から SOURCE_SHOTS 件の写真を、裏で1件ずつ撮って足していく
+            items = [it for it in (sc.visual["data"].get("items") or [])[:SOURCE_SHOTS] if it.get("url")]
+            for it in items:
+                it["shot_pending"] = True
+
+            def take_all(sc=sc, items=items):
+                for it in items:
+                    if self.cut.is_set():
+                        it["shot_pending"] = False
+                        continue
+                    name = self.shot(it["url"])
+                    it["shot_pending"] = False
+                    if name:
+                        it["shot"] = f"/shot/{name}"
+                    if 0 <= self.pos < len(self.deck) and self.deck[self.pos] is sc:
+                        self._show(self.pos, state=self.hub.state.get("state") or "speaking")
+            if items:
+                threading.Thread(target=take_all, daemon=True).start()
 
     def _show(self, i: int, state: str = "speaking") -> None:
         sc = self.deck[i]

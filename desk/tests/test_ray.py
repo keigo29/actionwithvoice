@@ -347,7 +347,9 @@ class ConfigTest(unittest.TestCase):
             p = Path(d) / "c.toml"
             p.write_text('cmd_dir = "~/x"\n[tts]\nvoice = "Otoya"\n')
             c = config.load(p)
-            self.assertEqual(c["tts"], {"voice": "Otoya", "rate": 210, "lipsync": True})
+            self.assertEqual(c["tts"]["voice"], "Otoya")
+            self.assertEqual((c["tts"]["rate"], c["tts"]["lipsync"], c["tts"]["engine"]), (210, True, "say"))
+            self.assertEqual(c["tts"]["voicevox"]["speaker"], 3)  # 書いていない入れ子も、既定で埋まる
             self.assertTrue(c["cmd_dir"].endswith("/x") and not c["cmd_dir"].startswith("~"))
 
 
@@ -458,3 +460,20 @@ class PushToTalkTest(unittest.TestCase):
         self.assertEqual(events[-1], ("audio", b"xx"))
         ptt.press()  # 次はまた押せる
         self.assertEqual(ptt.pressed, True)
+
+
+class OpenPageTest(unittest.TestCase):
+    def test_opens_with_named_app_on_mac(self):
+        import sys
+        from unittest import mock
+        from ray import __main__ as m
+        calls = []
+        ok = lambda cmd, **k: calls.append(cmd) or mock.Mock(returncode=0)
+        with mock.patch.object(sys, "platform", "darwin"), mock.patch.object(m.webbrowser, "open") as wb:
+            m.open_page("http://localhost:8765/", "Safari", run=ok)
+            wb.assert_not_called()
+            self.assertEqual(calls, [["open", "-a", "Safari", "http://localhost:8765/"]])
+            m.open_page("http://localhost:8765/", "Safari", run=lambda cmd, **k: mock.Mock(returncode=1))
+            wb.assert_called_once_with("http://localhost:8765/")  # 開けなければ、ふだんのブラウザ
+            m.open_page("http://localhost:8765/", "", run=ok)
+            self.assertEqual(wb.call_count, 2)

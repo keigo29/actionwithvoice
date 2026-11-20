@@ -238,12 +238,12 @@ def run(cfg: dict, use_ui: bool) -> None:
     if use_ui and cfg["ui"]["enabled"]:
         from .usage import UsageWatcher
         if cfg["ui"].get("usage", True):
-            UsageWatcher(hub, gemini=getattr(brain, "gemini", None)).start()
+            UsageWatcher(hub, gemini=getattr(brain, "gemini", None), search=getattr(brain, "search", None)).start()
         serve(hub, cfg["ui"]["port"])
         url = f"http://localhost:{cfg['ui']['port']}/"
         print(f"状態の画面：{url}")
         if cfg["ui"]["open_browser"]:
-            webbrowser.open(url)
+            open_page(url, cfg["ui"].get("browser", ""))
 
     if cfg["wake"]["enabled"]:
         from .wake import WakeListener
@@ -265,14 +265,24 @@ def run(cfg: dict, use_ui: bool) -> None:
             ptt.release()
 
     print(f"「{cfg['hotkey']}」キーを押している間に話してください（終わるときは Ctrl+C）")
-    sfx.play("boot", wait=3)  # 起動の音（作り終わるのを少しだけ待つ）
-    time.sleep(1.2)           # 和音が開いたところで名乗る
-    speaker.say("レイです。どうぞ")
+    sfx.play("boot", wait=3)  # 起動の音（作り終わるのを少しだけ待つ）。名乗りはしない
     with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
         try:
             listener.join()
         except KeyboardInterrupt:
             print("おしまい")
+
+
+def open_page(url: str, app: str = "", run=subprocess.run) -> None:
+    """状態の画面を開く。app（"Safari" など）があれば Mac でそのアプリで開く。だめなら、ふだんのブラウザ"""
+    if app and sys.platform == "darwin":
+        try:
+            if run(["open", "-a", app, url], capture_output=True, timeout=10).returncode == 0:
+                return
+        except (OSError, subprocess.SubprocessError):
+            pass
+        print(f"{app} で開けなかったので、ふだんのブラウザで開きます")
+    webbrowser.open(url)
 
 
 def main(argv=None) -> int:

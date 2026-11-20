@@ -9,25 +9,22 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap">
 <style>
   /* CP Mono（v07）を英数字・記号にいちばん優先して使う。日本語は Zen Kaku Gothic New のまま（unicode-range で英数字の範囲だけ CP Mono）
-     探す順：Mac に入っている CP Mono（いくつかの名前で探す）→ desk/ray/ui/fonts/ に置いたファイル */
-  @font-face { font-family: "CP Mono"; font-weight: 400; font-display: swap; unicode-range: U+0000-024F, U+2000-206F, U+20A0-20CF, U+2100-21FF, U+2200-22FF;
-    src: local("CPMono_v07 Plain"), local("CPMono_v07-Plain"), local("CPMono_v07 Regular"), local("CPMono_v07-Regular"), local("CPMono_v07"),
+     探す順：Mac に入っている CP Mono（本当の名前は CPMono_v07Plain のようにスペースなし）→ desk/ray/ui/fonts/ に置いたファイル */
+  /* CP Mono の Bold・Black は使わない。太字を指定した所も Plain（400）で描く（400〜900 を Plain が受け持つので、ブラウザが擬似的に太くすることもない） */
+  @font-face { font-family: "CP Mono"; font-weight: 400 900; font-display: swap; unicode-range: U+0000-024F, U+2000-206F, U+20A0-20CF, U+2100-21FF, U+2200-22FF;
+    src: local("CPMono_v07Plain"), local("CPMono_v07 Plain"), local("CPMono_v07-Plain"),
          url("/fonts/CPMono_v07_Plain.otf") format("opentype"); }
   @font-face { font-family: "CP Mono"; font-weight: 300; font-display: swap; unicode-range: U+0000-024F, U+2000-206F, U+20A0-20CF, U+2100-21FF, U+2200-22FF;
-    src: local("CPMono_v07 Light"), local("CPMono_v07-Light"), url("/fonts/CPMono_v07_Light.otf") format("opentype"); }
-  @font-face { font-family: "CP Mono"; font-weight: 700; font-display: swap; unicode-range: U+0000-024F, U+2000-206F, U+20A0-20CF, U+2100-21FF, U+2200-22FF;
-    src: local("CPMono_v07 Bold"), local("CPMono_v07-Bold"), url("/fonts/CPMono_v07_Bold.otf") format("opentype"); }
-  @font-face { font-family: "CP Mono"; font-weight: 900; font-display: swap; unicode-range: U+0000-024F, U+2000-206F, U+20A0-20CF, U+2100-21FF, U+2200-22FF;
-    src: local("CPMono_v07 Black"), local("CPMono_v07-Black"), local("CPMono_v07 Bold"), url("/fonts/CPMono_v07_Black.otf") format("opentype"), url("/fonts/CPMono_v07_Bold.otf") format("opentype"); }
+    src: local("CPMono_v07Light"), local("CPMono_v07 Light"), local("CPMono_v07-Light"), url("/fonts/CPMono_v07_Light.otf") format("opentype"); }
   :root {
     --bg: #0b0d12; --panel: #141821; --panel2: #1b2030; --line: #283044;
     --fg: #e8eaf0; --muted: #8a90a2; --hi: #ffd54a; --good: #2fd38a; --bad: #ff5a5a;
     /* 基本の色はオレンジ寄り。確認待ちだけは赤（オレンジと見分けるため） */
     --idle: #ff6a1a; --listening: #ff7d2e; --thinking: #ff6a1a; --speaking: #ff8c42; --confirm: #ff2d55;
     --neon: #ff6a1a; --neon2: #ffa463; --ring: rgba(255, 240, 228, .78);
-    /* 先頭が CP Mono（上の @font-face）。それでも見つからないときのために、Mac に入っている名前（CPMono_v07）も次に置く */
-    --font: "CP Mono", "CPMono_v07", "CPMono_v07 Plain", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif;
-    --font-mono: "CP Mono", "CPMono_v07", "CPMono_v07 Plain", "Zen Kaku Gothic New", ui-monospace, Menlo, monospace;
+    /* CP Mono は上の @font-face からだけ使う（Mac の CPMono_v07 を名前で直接指すと、太字の所で Bold・Black が選ばれてしまう） */
+    --font: "CP Mono", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif;
+    --font-mono: "CP Mono", "Zen Kaku Gothic New", ui-monospace, Menlo, monospace;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
@@ -39,7 +36,7 @@
   /* ---- 円だけの画面（ふだん） ---- */
   #home { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; padding: 16px; }
   /* ---- HUD（Ray の顔）。リングを重ね、状態で回り方を変える ---- */
-  .hud { --size: min(58vmin, 440px); --speed: 1; --glow: .55;
+  .hud { --size: min(60vmin, 34vw, 820px); --speed: 1; --glow: .55;
     position: relative; width: var(--size); aspect-ratio: 1; flex: none; }
   .hud .layer { position: absolute; inset: 0; transform-style: preserve-3d; }
   .hud .layer svg { width: 100%; height: 100%; overflow: visible; display: block; }
@@ -102,8 +99,8 @@
   @keyframes breathe { 50% { transform: scale(.94); opacity: .75; } }
   @keyframes pulse { 50% { transform: scale(1.08); } }
   .label { font-size: 15px; letter-spacing: .2em; color: var(--muted); }
-  .text { max-width: 760px; text-align: center; font-size: 20px; line-height: 1.6; min-height: 3.2em; }
-  .q { max-width: 720px; text-align: center; color: var(--muted); font-size: 14px; min-height: 1.4em; }
+  .text { max-width: var(--mid, min(80vw, 1200px)); text-align: center; font-size: 20px; line-height: 1.6; min-height: 3.2em; }
+  .q { max-width: var(--mid, min(80vw, 1200px)); text-align: center; color: var(--muted); font-size: 14px; min-height: 1.4em; }
 
   /* ---- 絵を出しているとき ---- */
   body.stage-on #home { display: none; }
@@ -113,7 +110,8 @@
   header.bar .hud { --size: 60px; }
   header.bar .say { flex: 1; font-size: 19px; line-height: 1.5; }
   header.bar .meta { color: var(--muted); font-size: 13px; text-align: right; white-space: nowrap; }
-  #stage { flex: 1; overflow: auto; padding: 22px 28px 28px; animation: fade .35s ease; }
+  /* 中身は最大 1600px の列にして、画面の真ん中に置く（左右の余白を同じにする） */
+  #stage { flex: 1; overflow: auto; padding: 22px max(clamp(28px, 3vw, 64px), calc((100% - 1600px) / 2)) 28px; font-size: clamp(16px, .45vw + 9px, 22px); animation: fade .35s ease; }
   body.zoom header.bar { display: none; }
   body.zoom #stage { font-size: 125%; }
   @keyframes fade { from { opacity: 0; transform: translateY(8px); } }
@@ -144,7 +142,7 @@
   .month { grid-template-columns: repeat(7, minmax(0, 1fr)); }
   .month .day { min-height: 96px; padding: 6px; }
   .month .ev { font-size: .75em; padding: 3px 5px; margin-bottom: 3px; }
-  .tl { display: grid; grid-template-columns: 70px 1fr; gap: 8px 14px; max-width: 760px; }
+  .tl { display: grid; grid-template-columns: 70px 1fr; gap: 8px 14px; }
   .tl .t { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; padding-top: 10px; }
 
   /* ノート・コード */
@@ -156,13 +154,13 @@
   .diff .hunk { color: var(--idle); }
 
   /* リスト */
-  .list { display: grid; gap: 8px; max-width: 860px; }
+  .list { display: grid; gap: 8px; }
   .row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--panel); border-radius: 10px; }
   .row .box { width: 18px; height: 18px; border: 2px solid var(--muted); border-radius: 5px; flex: none; }
   .row.done { opacity: .45; } .row.done .box { background: var(--good); border-color: var(--good); }
   .row .due { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
   .row.overdue .due { color: var(--bad); font-weight: 600; }
-  .bars { display: grid; gap: 10px; max-width: 860px; margin-top: 18px; }
+  .bars { display: grid; gap: 10px; margin-top: 18px; }
   .bar2 { display: grid; grid-template-columns: 9em 1fr 7em; gap: 12px; align-items: center; }
   .track { height: 12px; background: var(--panel2); border-radius: 6px; overflow: hidden; }
   .fill { height: 100%; background: var(--idle); border-radius: 6px; }
@@ -182,15 +180,21 @@
   /* ウェブ */
   .web { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 18px; align-items: start; }
   .web img { width: 100%; border-radius: 12px; border: 1px solid var(--line); }
+  .srcgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 16px; }  /* ある枚数で横幅いっぱいに並べる */
+  .srccard { display: flex; flex-direction: column; gap: 8px; text-decoration: none; color: inherit; }
+  .srccard img { width: 100%; aspect-ratio: 1100/760; object-fit: cover; object-position: top; border-radius: 12px; border: 1px solid var(--line); }
+  .srccard .srcmeta { display: flex; flex-direction: column; gap: 2px; font-size: .92em; line-height: 1.4; }
+  .srccard .srcmeta .muted { font-size: .85em; }
+  [data-theme="blueprint"] .srccard img, [data-theme="blueprint"] .srccard .shotwait { border-radius: 2px; }
   .shotwait { aspect-ratio: 16/11; border-radius: 12px; background: var(--panel); display: grid; place-items: center; color: var(--muted); }
   blockquote { margin: 12px 0 0; padding: 12px 16px; border-left: 4px solid var(--hi); background: var(--panel2); border-radius: 0 10px 10px 0; line-height: 1.7; }
   a { color: #9fb1ff; }
 
   /* 表・手順・計算 */
-  table { border-collapse: collapse; width: 100%; max-width: 1000px; }
+  table { border-collapse: collapse; width: 100%; }
   th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
   th { color: var(--muted); font-weight: 500; }
-  .steps { display: grid; gap: 10px; max-width: 860px; counter-reset: s; }
+  .steps { display: grid; gap: 10px; counter-reset: s; }
   .step { display: flex; gap: 14px; padding: 14px 16px; background: var(--panel); border-radius: 12px; opacity: .55; }
   .step.now { opacity: 1; outline: 2px solid var(--hi); }
   .step.past { opacity: .8; }
@@ -202,13 +206,14 @@
   .confirm .yn span { padding: 8px 24px; border-radius: 999px; background: var(--panel2); }
   svg text { fill: var(--muted); font-size: 12px; }
   .diagram { display: flex; justify-content: center; }
-  .diagram svg { width: 100%; max-width: 1100px !important; height: auto; max-height: calc(100vh - 190px); }
+  .diagram svg { width: 100%; max-width: min(100%, 1800px) !important; height: auto; max-height: calc(100vh - 190px); }
   .diagram svg text { fill: inherit; font-size: inherit; }
   .diagram .hl-node rect, .diagram .hl-node polygon, .diagram .hl-node circle, .diagram .hl-node path.basic {
     stroke: var(--hi) !important; stroke-width: 3px !important; fill: color-mix(in srgb, var(--hi) 22%, #1b2030) !important; }
   .diagram pre { white-space: pre-wrap; color: var(--muted); }
 
-  /* 使える残り（Claude の Pro 枠・Gemini の無料枠） */
+  /* 使える残り（Claude の Pro 枠・Gemini の無料枠・Tavily の検索の枠） */
+  /* 置き場所は JS（placeUsage）が、注記の札と同じ左の列にそろえる。狭い画面では右下 */
   #usage { position: fixed; right: 20px; bottom: 18px; display: grid; gap: 10px; width: 250px;
     font-size: 12px; color: var(--muted); letter-spacing: .04em; }
   #usage:empty { display: none; }
@@ -216,7 +221,7 @@
   #usage .u { background: color-mix(in srgb, var(--panel) 80%, transparent); border: 1px solid var(--line); border-radius: 10px; padding: 8px 11px; }
   #usage .uh { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
   #usage .uh b { color: var(--fg); font-weight: 700; letter-spacing: .14em; }
-  #usage .ur { display: grid; grid-template-columns: 4.2em 1fr 3.2em; gap: 8px; align-items: center; margin-top: 3px; }
+  #usage .ur { display: grid; grid-template-columns: 4.2em 1fr 4.4em; gap: 8px; align-items: center; margin-top: 3px; }
   #usage .ur .v { text-align: right; color: var(--fg); font-variant-numeric: tabular-nums; }
   #usage .track { height: 5px; }
   #usage .fill.ok { background: var(--good); } #usage .fill.mid { background: var(--hi); } #usage .fill.low { background: var(--bad); }
@@ -228,7 +233,7 @@
     --bg: #e4eaec; --panel: #f2f5f5; --panel2: #e3e9ea; --line: #b7c4c7;
     --fg: #1d2a2f; --muted: #6a7a7f; --hi: #c4703a; --good: #3f8a83; --bad: #b8433a;
     --idle: #1d2a2f; --listening: #1d2a2f; --thinking: #1d2a2f; --speaking: #c4703a; --confirm: #b8433a;
-    --neon: #1d2a2f; --neon2: #3f7f7a; --ring: rgba(29, 42, 47, .72); --teal: #4b8782; --copper: #c4703a;
+    --neon: #1d2a2f; --neon2: #3f7f7a; --ring: rgba(29, 42, 47, .72); --teal: #b1d5d2; --copper: #c4703a;
   }
   [data-theme="blueprint"] body { background: radial-gradient(circle at 50% 40%, #f7fafa 0%, #e8eef0 48%, #dbe3e5 100%); }
   [data-theme="blueprint"] .hud .neon { filter: none; }
@@ -253,7 +258,7 @@
   [data-theme="blueprint"] header.bar { border-bottom-color: var(--ring); }
   [data-theme="blueprint"] .hl { border-radius: 2px; outline-width: 1.5px; }
   [data-theme="blueprint"] h2.ttl { font-family: var(--font-mono); letter-spacing: .06em; }
-  [data-theme="blueprint"] #usage .u { background: rgba(242, 245, 245, .8); border-color: var(--ring); }
+  [data-theme="blueprint"] #usage .u { background: rgba(242, 245, 245, .8);  }
   [data-theme="blueprint"] #usage .uh b { color: var(--fg); }
   [data-theme="blueprint"] #usage .fill.ok { background: var(--teal); } [data-theme="blueprint"] #usage .fill.mid { background: var(--copper); }
   /* 円のまわりの注記：引き出し線の先の札と、時刻の読み取り（設計図風のときだけ・広い画面だけ） */
@@ -263,9 +268,9 @@
   #annot svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   #annot svg path { fill: none; stroke: var(--ring); stroke-width: 1; }
   #annot svg circle { fill: var(--fg); }
-  #annot .tag { position: absolute; min-width: 168px; padding: 5px 10px 6px; background: var(--teal); color: #f4f8f8;
+  #annot .tag { position: absolute; min-width: 168px; padding: 5px 10px 6px; background: var(--teal); color: #000;
     font: 600 10px/1.3 var(--font-mono); letter-spacing: .14em; transition: opacity .6s ease; }
-  #annot .tag b { display: block; font-size: 13px; letter-spacing: .06em; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+  #annot .tag b { display: block; font-size: 13px; letter-spacing: .06em; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
   #annot .tag.r { text-align: right; }
   #annot .read { position: absolute; font-family: var(--font-mono); color: var(--fg); }
   #annot .read small { display: block; font-size: 10px; letter-spacing: .3em; color: var(--muted); }
@@ -416,8 +421,17 @@ R.web = (d) => `<div class="web" style="${d.shot || d.shot_pending ? "" : "grid-
     <h2 class="ttl" style="margin-top:6px">${esc(d.title)}</h2>${d.quote ? `<blockquote>${esc(d.quote)}</blockquote>` : ""}
     ${d.url ? `<p><a href="${esc(d.url)}" target="_blank" rel="noopener">ページを開く</a></p>` : ""}</div></div>`;
 
-R.sources = (d) => `<h2 class="ttl">${esc(d.title || "使ったページ")}</h2><div class="list">${(d.items || []).map((s, i) =>
-  `<a class="row" href="${esc(s.url)}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit"><span class="pill">${i + 1}</span><span>${esc(s.title)}</span><span class="due">${esc(s.site || "")}</span></a>`).join("")}</div>`;
+// 写真があるページ（上位）はカードで並べ、残りは一覧の行で出す
+R.sources = (d) => {
+  const items = d.items || [], withShot = items.filter((s) => s.shot || s.shot_pending), rest = items.filter((s) => !s.shot && !s.shot_pending);
+  const card = (s) => `<a class="srccard" href="${esc(s.url)}" target="_blank" rel="noopener">
+    ${s.shot ? `<img src="${esc(s.shot)}" alt="">` : '<div class="shotwait">ページの写真を撮っています…</div>'}
+    <div class="srcmeta"><span class="muted">${esc(s.site || "")}</span><span>${esc(s.title)}</span></div></a>`;
+  const row = (s) => `<a class="row" href="${esc(s.url)}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit"><span class="pill">${items.indexOf(s) + 1}</span><span>${esc(s.title)}</span><span class="due">${esc(s.site || "")}</span></a>`;
+  return `<h2 class="ttl">${esc(d.title || "使ったページ")}</h2>
+    ${withShot.length ? `<div class="srcgrid">${withShot.map(card).join("")}</div>` : ""}
+    ${rest.length ? `<div class="list" style="margin-top:14px">${rest.map(row).join("")}</div>` : ""}`;
+};
 
 R.table = (d) => `<h2 class="ttl">${esc(d.title)}</h2><div class="card"><table><tr>${(d.columns || []).map((c) => `<th>${esc(c)}</th>`).join("")}</tr>
   ${(d.rows || []).map((r, i) => `<tr class="${(d.highlight || []).includes(i) ? "hl" : ""}">${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table></div>`;
@@ -439,7 +453,7 @@ function loadMermaid() {
     const sc = document.createElement("script");
     sc.src = MERMAID_URL; sc.onload = () => {
       window.mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict",
-        fontFamily: '"CP Mono", "CPMono_v07", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif',
+        fontFamily: '"CP Mono", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif',
         themeVariables: { background: "#0b0d12", primaryColor: "#1b2030", primaryBorderColor: "#4a5cff",
           primaryTextColor: "#e8eaf0", lineColor: "#8a90a2", fontSize: "18px" } });
       ok(window.mermaid);
@@ -482,6 +496,7 @@ function render(scene) {
 
 
 /* ---------- HUD を組み立てる ---------- */
+const MIC_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>';
 function ringSvg(inner, cls = "") { return `<svg viewBox="0 0 400 400" class="${cls}">${inner}</svg>`; }
 function ticks(r1, r2, n, every, long) {
   let o = "";
@@ -606,7 +621,7 @@ function buildNeon(el, { name = true } = {}) {
         <g stroke="var(--ring)" stroke-width="1" opacity=".25"><line x1="200" y1="70" x2="200" y2="96"/><line x1="200" y1="304" x2="200" y2="330"/><line x1="70" y1="200" x2="96" y2="200"/><line x1="304" y1="200" x2="330" y2="200"/></g>`), "side-dim") +
     '</div>' +
     '<div class="beam"></div>' +
-    (name ? '<div class="name"><b>RAY</b></div>' : "");
+    (name ? '<div class="name"><b>ray</b></div>' : "");
 }
 buildHud($("orb"));
 buildHud($("orb2"), { name: false });
@@ -721,36 +736,70 @@ function renderUsage(u) {
       html += `<div class="u"><div class="uh"><b>GEMINI</b><span>${esc(g.why || "")}</span></div></div>`;
     }
   }
+  const t = u.tavily;
+  if (t) {
+    if (t.ok) {
+      html += `<div class="u"><div class="uh"><b>TAVILY</b><span>検索の残り</span></div>
+        ${uRow("今月", 100 * t.left / t.limit, t.left + "回")}
+        <div class="rs">${t.limit}回まで・${t.used}回 使用${t.plan ? `（${esc(t.plan)}）` : ""}</div></div>`;
+      short.push(`Tavily ${t.left}回`);
+    } else {
+      html += `<div class="u"><div class="uh"><b>TAVILY</b><span>${esc(t.why || "")}</span></div></div>`;
+    }
+  }
   $("usage").innerHTML = html;
   $("usage2").textContent = short.join("・");
+  placeUsage();
 }
 let lastUsage = "";
 
 /* ---------- 円のまわりの注記（blueprint のとき） ---------- */
 // 円のふちから引き出し線を出し、先に青緑の札を置く。右下に時刻の読み取り。中身は届いた状態から
 const annot = { state: "", date: "", question: "", scene: "" };
+// 札は円の左右の列に並べる（円からの離れ方は画面幅で決まる）
+const COL_W = 250;  // 札・残りの欄の幅
+function columns() {
+  const r = $("orb").getBoundingClientRect(), W = innerWidth;
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2, R = r.width * .47;
+  // 円のふちから少し離して置く（離れ方は画面幅で少し広がる）。画面からはみ出す時だけ内側へ
+  const gap = Math.max(80, Math.min(180, W * .06));
+  const lx = Math.max(24, cx - R - gap - COL_W);                // 左の列
+  const tx = Math.min(W - 24 - COL_W, cx + R + gap);            // 右の列
+  return { r, cx, cy, R, lx, tx };
+}
+function placeUsage() {
+  const U = $("usage");
+  const r = $("orb").getBoundingClientRect();
+  if (!r.width || innerWidth <= 860) { document.documentElement.style.removeProperty("--mid"); U.style.left = U.style.top = U.style.width = U.style.right = U.style.bottom = ""; return; }  // 狭い画面は CSS のまま右下
+  const { cy, R, lx, tx } = columns();
+  // 返事の文は、左右の列のあいだに収める（残りの欄や札に重ならないように）
+  document.documentElement.style.setProperty("--mid", `${Math.max(320, tx - lx - COL_W - 48)}px`);
+  // blueprint では LAST QUESTION の下。neon でも同じ場所（左の列）
+  const top = cy + R * .15 + 2 * 62 + 8;
+  U.style.left = `${lx}px`; U.style.top = `${Math.min(top, innerHeight - U.offsetHeight - 18)}px`;
+  U.style.width = `${COL_W}px`; U.style.right = "auto"; U.style.bottom = "auto";
+}
 function layoutAnnot() {
+  placeUsage();
   const A = $("annot");
   if (theme !== "blueprint") { A.innerHTML = ""; return; }
-  const r = $("orb").getBoundingClientRect();
+  const { r, cx, cy, R, lx, tx } = columns();
   if (!r.width) return;
-  const cx = r.left + r.width / 2, cy = r.top + r.height / 2, R = r.width * .47, W = innerWidth;
   // 右に3つ、左に2つ。円の上の点（角度）→ 横へ → 札
   const right = [[-38, "a-state", "STATE"], [-14, "a-voice", "VOICE LEVEL"], [10, "a-scene", "LAST SCENE"]];
   const left = [[200, "a-date", "DATE"], [222, "a-q", "LAST QUESTION"]];
   let paths = "", dots = "", tags = "";
-  const tx = Math.min(W - 200, cx + R + 120), lx = Math.max(16, cx - R - 300);
   right.forEach(([a, id, key], i) => {
     const px = cx + R * Math.cos(a * Math.PI / 180), py = cy + R * Math.sin(a * Math.PI / 180), ty = cy - R * .75 + i * 62;
     paths += `<path d="M ${px} ${py} L ${tx - 40} ${py} L ${tx - 40} ${ty + 16} L ${tx} ${ty + 16}"/>`;
     dots += `<circle cx="${px}" cy="${py}" r="2.5"/>`;
-    tags += `<div class="tag" id="${id}" style="left:${tx}px;top:${ty}px">${key}<b>—</b></div>`;
+    tags += `<div class="tag" id="${id}" style="left:${tx}px;top:${ty}px;width:${COL_W}px">${key}<b>—</b></div>`;
   });
   left.forEach(([a, id, key], i) => {
     const px = cx + R * Math.cos(a * Math.PI / 180), py = cy + R * Math.sin(a * Math.PI / 180), ty = cy + R * .15 + i * 62;
-    paths += `<path d="M ${px} ${py} L ${lx + 230} ${py} L ${lx + 230} ${ty + 16} L ${lx + 190} ${ty + 16}"/>`;
+    paths += `<path d="M ${px} ${py} L ${lx + COL_W + 40} ${py} L ${lx + COL_W + 40} ${ty + 16} L ${lx + COL_W} ${ty + 16}"/>`;
     dots += `<circle cx="${px}" cy="${py}" r="2.5"/>`;
-    tags += `<div class="tag r" id="${id}" style="left:${lx}px;top:${ty}px;width:190px">${key}<b>—</b></div>`;
+    tags += `<div class="tag r" id="${id}" style="left:${lx}px;top:${ty}px;width:${COL_W}px">${key}<b>—</b></div>`;
   });
   A.innerHTML = `<svg>${paths}${dots}</svg>${tags}
     <div class="read" style="left:${tx}px;top:${cy + R * .3}px"><small>LOCAL TIME</small><big id="a-time">--:--:--</big>
@@ -781,8 +830,10 @@ setTimeout(() => { layoutAnnot(); tickAnnot(); }, 0);
 
 /* ---------- 状態を受け取る ---------- */
 let lastScene = "";
+let lastServerTheme = "";
 function apply(s) {
-  if (!urlTheme && s.theme) setTheme(s.theme);
+  // 設定の見た目は、変わったときだけ当てる（T キーで選んだ見た目を、毎回の状態で戻さないため）
+  if (!urlTheme && s.theme && s.theme !== lastServerTheme) { lastServerTheme = s.theme; setTheme(s.theme); }
   for (const id of ["orb", "orb2"]) $(id).dataset.state = s.state;
   takeVoice(s);
   const now = new Date();
@@ -794,7 +845,12 @@ function apply(s) {
   const lab = LABELS[s.state] || s.state;
   $("label").textContent = lab; $("label2").textContent = lab;
   $("text").textContent = s.text || s.answer || "";
-  $("q").textContent = s.question ? "🎙 " + s.question : "";
+  const qEl = $("q");
+  qEl.textContent = "";
+  if (s.question) {
+    qEl.insertAdjacentHTML("beforeend", MIC_ICON);
+    qEl.appendChild(document.createTextNode(" " + s.question));
+  }
   $("say").textContent = s.text || "";
   document.body.classList.toggle("zoom", !!s.zoom);
   const uk = JSON.stringify(s.usage || null); if (uk !== lastUsage) { renderUsage(s.usage); lastUsage = uk; }

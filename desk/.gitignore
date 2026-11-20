@@ -3,3 +3,6 @@ __pycache__/
 .venv/
 ray.log
 gemini-count.json
+ray/ui/fonts/*.otf
+ray/ui/fonts/*.ttf
+ray/ui/fonts/*.woff*

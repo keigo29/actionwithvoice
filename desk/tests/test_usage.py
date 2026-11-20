@@ -105,20 +105,56 @@ def _cfg():
     return cfg()
 
 
+class FakeSearch:
+    def __init__(self, key="k", enabled=True):
+        self.key = key
+        self.c = {"enabled": enabled, "provider": "tavily"}
+
+
+class TavilyUsageTest(unittest.TestCase):
+    def test_reads_plan_left(self):
+        seen = {}
+
+        def urlopen(req, timeout=None):
+            seen["auth"] = req.get_header("Authorization")
+            seen["url"] = req.full_url
+            return FakeResp(json.dumps({"key": {"usage": 12, "limit": None},
+                                        "account": {"current_plan": "Researcher", "plan_usage": 40, "plan_limit": 1000}}).encode())
+
+        u = usage.tavily_usage(FakeSearch(), urlopen=urlopen)
+        self.assertEqual(seen["auth"], "Bearer k")
+        self.assertEqual(seen["url"], usage.TAVILY_USAGE_URL)
+        self.assertEqual(u, {"ok": True, "used": 40, "limit": 1000, "left": 960, "plan": "Researcher"})
+
+    def test_no_search_or_key_or_error(self):
+        self.assertIsNone(usage.tavily_usage(None))
+        self.assertIsNone(usage.tavily_usage(FakeSearch(enabled=False)))
+        self.assertEqual(usage.tavily_usage(FakeSearch(key=""))["why"], "鍵がありません")
+
+        def boom(req, timeout=None):
+            raise urllib.error.HTTPError(req.full_url, 401, "no", {}, None)
+
+        self.assertEqual(usage.tavily_usage(FakeSearch(), urlopen=boom), {"ok": False, "why": "エラー 401"})
+
+
 class WatcherTest(unittest.TestCase):
     def test_puts_usage_on_hub_and_caches_claude(self):
         hub = StateHub()
         calls = []
         t = [0.0]
+        tav = []
         w = usage.UsageWatcher(hub, gemini=gemini(), fetch_claude=lambda: calls.append(1) or {"ok": False, "why": "x"},
-                               clock=lambda: t[0])
+                               clock=lambda: t[0], search=FakeSearch(),
+                               fetch_tavily=lambda s: tav.append(s) or {"ok": True, "left": 9, "limit": 10, "used": 1})
         w.refresh()
         w.refresh()
         self.assertEqual(len(calls), 1)
         t[0] = 301
         w.refresh()
         self.assertEqual(len(calls), 2)
+        self.assertEqual(len(tav), 2)  # Tavily も Claude と同じ間隔
         self.assertEqual(hub.state["usage"]["gemini"]["left"], 450)
+        self.assertEqual(hub.state["usage"]["tavily"]["left"], 9)
 
 
 if __name__ == "__main__":

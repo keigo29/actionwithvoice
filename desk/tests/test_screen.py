@@ -260,6 +260,24 @@ class PresentTest(unittest.TestCase):
         a.handle_text("やることは？")
         self.assertEqual(s.said, ["ひとつめ。"])
 
+    def test_sources_get_shots_for_top_pages(self):
+        items = [{"title": f"ページ{i}", "url": f"https://example.com/{i}", "site": "example.com"} for i in range(5)]
+        ans = '@画面 sources ' + json.dumps({"items": items}, ensure_ascii=False) + '\n調べた結果です。'
+        a, b, s, hub, shown = self.make([ans])
+        taken = []
+        a.shot = lambda url, quote="": taken.append(url) or f"s{len(taken)}.png"
+        a.handle_text("近くのラーメン屋を調べて")
+        import time
+        for _ in range(100):
+            got = [it.get("shot") for it in (hub.state.get("scene") or {}).get("data", {}).get("items", [])]
+            if got[:3] == ["/shot/s1.png", "/shot/s2.png", "/shot/s3.png"]:
+                break
+            time.sleep(0.02)
+        got = hub.state["scene"]["data"]["items"]
+        self.assertEqual([it.get("shot") for it in got], ["/shot/s1.png", "/shot/s2.png", "/shot/s3.png", None, None])
+        self.assertEqual(taken, [f"https://example.com/{i}" for i in range(3)])  # 上の3件だけ
+        self.assertFalse(any(it.get("shot_pending") for it in got))
+
     def test_web_shot_added_later_and_confirm_card(self):
         ans = '@画面 web {"url":"https://example.com/a","title":"記事","quote":"根拠の文"}\nこの記事によると上がっています。'
         a, b, s, hub, shown = self.make([ans, "確認です。ファイルを消します。よいですか？"])

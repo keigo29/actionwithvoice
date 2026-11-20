@@ -74,9 +74,14 @@ WORK_RE = re.compile(
     r"追加|書いて|書き込|記録して|つけて|消して|削除|直して|編集|変えて|保存|コミット|プッシュ|push|git|ギット"
     r"|ファイル|フォルダ|cmd|コマンド|リポジトリ|プロジェクト|テスト"
     r"|コード|プログラム|スクリプト|関数|バグ"
-    r"|天気|おはよう|朝のまとめ|画面|見せて|表に|図に|図で",  # 天気・朝のまとめは画面つきで答える
+    r"|天気|おはよう|朝のまとめ|画面|見せて|表に|図に|図で"  # 天気・朝のまとめは画面つきで答える
+    r"|表示|キャプチャ|スクショ|スクリーンショット",  # 「サイトのキャプチャーを表示できる？」は Ray 自身の話（調べものではない）
     re.I,
 )
+# Claude の問いかけへの短い返事（「はい」「お願い」など）。前が Claude なら、続きとして Claude に回す
+REPLY_RE = re.compile(r"^(はい|うん|ええ|いいよ|いいね|お願い|おねがい|頼む|たのむ|やって|そうして|それで|オッケー|OK|オーケー"
+                      r"|いいえ|いや|ううん|やめて|やめとく|いらない|大丈夫|だいじょうぶ|結構|けっこう)", re.I)
+REPLY_MAX = 15
 # 調べもの：Gemini に Google 検索で答えさせる（だめなら Claude の WebSearch）
 SEARCH_RE = re.compile(r"調べ|検索|ググ|ニュース|最新|最近の|今年|値段|価格|いくら|店|レストラン|ウェブ|サイト|発売|営業時間", re.I)
 # 場所の言葉：「近くの家系ラーメン教えて」のように「調べて」と言わない店探しも、調べものとして扱う（足したルール）
@@ -93,6 +98,9 @@ HEALTH_RES = {
     "habits": re.compile(r"習慣|毎日確認|続いて|サボ"),
     "workout": re.compile(r"筋トレ|トレーニング|運動|ベンチ|スクワット|デッド"),
 }
+# 天気：Ray が先に取って、画面と読み上げの両方に同じ結果を渡す（天気は公開の情報なので外に出してよい）
+WEATHER_RE = re.compile(r"天気|気温|降水|傘")
+MORNING_RE = re.compile(r"おはよう|朝のまとめ")
 # ローカルに任せるのは、画面のいらない、あいさつ・お礼・ひとことの雑談・時刻だけ
 # （説明は画面つきで答えるので Claude へ。7B は「@クロード」と返す決まりを守らないことがあるので、言葉で決める）
 CHAT_RE = re.compile(
@@ -238,8 +246,44 @@ def with_panel(on_text: Callable[[str], None], line: str) -> Callable[[str], Non
     return wrapped
 
 
+def is_weather(text: str) -> bool:
+    """天気だけの質問か。予定や作業と混ざるとき、朝のまとめは、これまでどおり Claude"""
+    return bool(WEATHER_RE.search(text) and not MORNING_RE.search(text) and not PRIVATE_RE.search(text)
+                and not WORK_RE.search(text.replace("天気", "")))
+
+
+def weather_date(text: str, now: datetime | None = None) -> str:
+    dates = said_dates(text, now)
+    return dates[0] if dates else _now(now).date().isoformat()
+
+
+def weather_panel(text: str, now: datetime | None = None) -> str:
+    return panel_line("weather", {"date": weather_date(text, now)})
+
+
+def weather_text(cfg: dict, text: str, now: datetime | None = None) -> str:
+    """画面と同じ天気の結果（同じ取得と使い回し）を、話す側に渡す短い文にする"""
+    w = visuals.weather(cfg, {"date": weather_date(text, now), "every": 3})
+    if w.get("error"):
+        return f"{w['place']}の天気：取れませんでした。取れなかったと短く言う。天気の数字は作らない"
+    hours = "、".join(f"{h['time'][:2]}時 {h['temp']}度 雨{h['pop']}パーセント {h['sky']}" for h in w["hours"])
+    return (f"{w['place']}の{w['date']}の天気：いちばん高い気温 {w['max']}度、いちばん低い気温 {w['min']}度、"
+            f"雨の確率は最大 {w['pop']}パーセント。3時間ごと：{hours}")
+
+
 def needs_claude(text: str) -> bool:
     return bool(PRIVATE_RE.search(text) or WORK_RE.search(text))
+
+
+def continues_claude(history: list[tuple[str, str, str]], text: str) -> bool:
+    """直前に Claude が答えていて、それが問いかけ（？で終わる）か、今の発話が短い返事なら、続きとして Claude に回す
+    （「調べて直しましょうか？」→「はい」を Gemini が受けると、話の流れを知らずに噛み合わない）"""
+    if not history or history[-1][2] != "claude":
+        return False
+    if history[-1][1].rstrip().rstrip("」』）)").endswith(("？", "?")):
+        return True
+    t = text.strip().lstrip("、。 ")
+    return len(t) <= REPLY_MAX and bool(REPLY_RE.match(t))
 
 
 def needs_search(text: str) -> bool:
@@ -689,7 +733,23 @@ class HybridBrain:
         # 外（Gemini）に渡すのは、Claude が答えたもの（お金・予定などを含みうる）を除いたやり取りだけ
         outside_ok = [(q, a) for q, a, by in self.history if by != "claude"]
 
-        if not confirmed and not needs_claude(text):
+        if not confirmed and continues_claude(self.history, text):
+            pass  # Claude との話の続き（問いかけへの返事）：下で Claude へ
+        elif not confirmed and is_weather(text):
+            # 天気：Ray が先に取って画面を作り、同じ結果を話す側へ。話す側が無理なら Claude へ
+            data = weather_text(self.cfg, text)
+            panel = weather_panel(text)
+            if self._local_ready():
+                answer = self.local.ask(everything, text, with_panel(on_text, panel), data=data)
+                if answer:
+                    return self._done(text, answer, "local")
+            if not self.cut.is_set():
+                answer = self.gemini.ask(outside_ok, text, with_panel(on_text, panel), data=data)
+                if answer:
+                    return self._done(text, answer, "gemini")
+            if self.cut.is_set():
+                return Result(answer="", session_id=self.conv, is_error=True, by="local")
+        elif not confirmed and not needs_claude(text):
             kinds = health_kinds(text)
             if kinds:
                 # 体調・健康の記録：Ray が読んでローカルへ。ローカルが無理なら Gemini、それも無理なら Claude

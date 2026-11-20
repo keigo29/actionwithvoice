@@ -130,7 +130,7 @@ class Budget:
 
     def take(self, text: str, opener_ok: bool = True) -> str:
         s = sentences(text)
-        # 作業の前の「調べます」のような短いひとことは、文の数に数えない（最初の1回だけ）
+        # 作業の前の「検索中」のような短いひとことは、文の数に数えない（最初の1回だけ）
         if opener_ok and not self.opened and len(s) == 1 and len(s[0]) <= OPENER_MAX:
             self.opened = True
             return s[0]

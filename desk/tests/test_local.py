@@ -116,6 +116,81 @@ class RuleTest(unittest.TestCase):
         self.assertEqual(local.health_kinds("フランスの首都は？"), [])
 
 
+class WeatherFirstTest(unittest.TestCase):
+    def test_is_weather(self):
+        for q in ["明日の天気は？", "今日の気温", "傘いる？"]:
+            self.assertTrue(local.is_weather(q), q)
+        for q in ["おはよう", "朝のまとめ", "明日の予定と天気", "天気をメモに追加して", "フランスの首都は？"]:
+            self.assertFalse(local.is_weather(q), q)
+
+    def test_panel_and_text(self):
+        now = local.datetime(2026, 11, 20, 9, 0, tzinfo=local.JST)
+        self.assertEqual(local.weather_panel("明日の天気", now), local.panel_line("weather", {"date": "2026-11-21"}))
+        self.assertEqual(local.weather_panel("天気は？", now), local.panel_line("weather", {"date": "2026-11-20"}))
+        orig = local.visuals.weather
+        try:
+            local.visuals.weather = lambda cfg, p: {"error": "x", "place": "横浜"}
+            self.assertIn("取れませんでした", local.weather_text({}, "天気", now))
+            local.visuals.weather = lambda cfg, p: {"place": "横浜", "date": p["date"], "max": 18, "min": 9, "pop": 40,
+                                                    "hours": [{"time": "09:00", "temp": 12, "pop": 10, "sky": "晴れ"}]}
+            t = local.weather_text({}, "天気", now)
+            self.assertIn("18度", t)
+            self.assertIn("2026-11-20", t)
+        finally:
+            local.visuals.weather = orig
+
+
+class AskingClaude(FakeClaude):
+    """答えの最後に問いかけを返す Claude"""
+
+    def __init__(self, answer="調べて直しましょうか？"):
+        super().__init__()
+        self.answer = answer
+
+    def ask(self, text, on_text, session_id=None, confirmed=False):
+        self.calls.append({"text": text, "session_id": session_id, "confirmed": confirmed})
+        return brain.Result(answer=self.answer, session_id=f"claude-{len(self.calls)}", spoken=[self.answer])
+
+
+class FollowUpTest(unittest.TestCase):
+    def setUp(self):
+        self.http = FakeGeminiHttp([["ゲミニの答えです。"]] * 3)
+        c = cfg()
+        self.claude = AskingClaude()
+        self.h = local.HybridBrain(c, self.claude, local.LocalBrain(c, urlopen=FakeOllama()), gemini(self.http))
+
+    def test_reply_to_claude_question_goes_to_claude(self):
+        r = self.h.ask("画面に写真を出すコードを直して", lambda t: None)
+        res = self.h.ask("はい", lambda t: None, session_id=r.session_id)
+        self.assertEqual(res.by, "claude")
+        self.assertEqual(len(self.claude.calls), 2)
+        self.assertEqual(self.claude.calls[1]["session_id"], "claude-1")  # 同じ Claude の会話の続き
+        self.assertEqual(self.http.bodies, [])
+
+    def test_any_answer_to_claude_question_stays_with_claude(self):
+        r = self.h.ask("画面に写真を出すコードを直して", lambda t: None)
+        self.assertEqual(self.h.ask("ラーメン屋の写真だけでいい", lambda t: None, session_id=r.session_id).by, "claude")
+
+    def test_short_reply_after_claude_statement_goes_to_claude(self):
+        self.claude.answer = "直しておきます。"
+        r = self.h.ask("画面に写真を出すコードを直して", lambda t: None)
+        self.assertEqual(self.h.ask("お願い", lambda t: None, session_id=r.session_id).by, "claude")
+
+    def test_new_topic_after_claude_statement_leaves_claude(self):
+        self.claude.answer = "直しておきます。"
+        r = self.h.ask("画面に写真を出すコードを直して", lambda t: None)
+        self.assertEqual(self.h.ask("ブラックホールって何？", lambda t: None, session_id=r.session_id).by, "gemini")
+
+    def test_rules(self):
+        self.assertFalse(local.continues_claude([], "はい"))
+        self.assertFalse(local.continues_claude([("q", "どうしますか？", "gemini")], "はい"))
+        self.assertTrue(local.continues_claude([("q", "直しましょうか？", "claude")], "ブラックホールって何？"))
+        self.assertFalse(local.continues_claude([("q", "直しました。", "claude")], "はいはい、それでブラックホールって何なのか教えて"))
+
+    def test_screen_capture_question_is_not_web_search(self):
+        self.assertTrue(local.needs_claude("調べた内容のサイトのキャプチャーみたいなのを表示できるのは難しい"))
+
+
 class HybridTest(unittest.TestCase):
     def test_local_answers_sentence_by_sentence(self):
         o = FakeOllama(chats=[["パリ", "です。首都", "は", "セーヌ川の近くです。"]])

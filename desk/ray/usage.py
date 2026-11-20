@@ -4,6 +4,7 @@
   /usage で見えるのと同じもの（5時間の枠と、1週間の枠）。回数ではなく「残り何％」で返ってくる。
   鍵は Anthropic にだけ送る。取れなければ画面には「不明」と出す（Ray の動きには影響しない）
 - Gemini：Ray が数えている回数（GeminiBrain.count）と、上限（daily_limit）から出す
+- Tavily（検索 API）：Tavily に今のプランの使用回数と上限を聞く（/usage。検索の枠は使わない）。鍵は Tavily にだけ送る
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+TAVILY_USAGE_URL = "https://api.tavily.com/usage"
 KEYCHAIN_SERVICE = "Claude Code-credentials"
 CREDENTIALS_FILE = Path.home() / ".claude" / ".credentials.json"
 
@@ -60,6 +62,32 @@ def claude_usage(urlopen=urllib.request.urlopen, token=_claude_token) -> dict:
     return {"ok": True, "five_hour": _window(data.get("five_hour")), "seven_day": _window(data.get("seven_day"))}
 
 
+def tavily_usage(search, urlopen=urllib.request.urlopen) -> dict | None:
+    """検索 API（Tavily）の今の枠。プランの上限（plan_limit）と使った回数（plan_usage）から残りを出す"""
+    if search is None:
+        return None
+    c = search.c
+    if not c.get("enabled") or c.get("provider", "tavily") != "tavily":
+        return None
+    if not search.key:
+        return {"ok": False, "why": "鍵がありません"}
+    req = urllib.request.Request(TAVILY_USAGE_URL, headers={"Authorization": f"Bearer {search.key}", "User-Agent": "ray"})
+    try:
+        with urlopen(req, timeout=10) as r:
+            data = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return {"ok": False, "why": f"エラー {e.code}"}
+    except (OSError, ValueError) as e:
+        return {"ok": False, "why": str(e)[:60]}
+    acc, key = data.get("account") or {}, data.get("key") or {}
+    limit = acc.get("plan_limit") or key.get("limit")
+    used = acc.get("plan_usage") if acc.get("plan_usage") is not None else key.get("usage")
+    if not limit or used is None:
+        return {"ok": False, "why": "残りが分かりません"}
+    return {"ok": True, "used": int(used), "limit": int(limit), "left": max(0, int(limit) - int(used)),
+            "plan": acc.get("current_plan") or ""}
+
+
 def gemini_usage(gemini) -> dict | None:
     if gemini is None:
         return None
@@ -81,9 +109,12 @@ class UsageWatcher:
     """裏で残りを調べて、hub の usage に入れる。返事が終わるたび（待機中に戻ったとき）にも調べ直す"""
 
     def __init__(self, hub, gemini=None, claude_every: float = 300, every: float = 30,
-                 fetch_claude=claude_usage, clock=time.monotonic):
+                 fetch_claude=claude_usage, clock=time.monotonic, search=None, fetch_tavily=tavily_usage):
         self.hub = hub
         self.gemini = gemini
+        self.search = search
+        self.fetch_tavily = fetch_tavily
+        self.tavily: dict | None = None
         self.claude_every = claude_every
         self.every = every
         self.fetch_claude = fetch_claude
@@ -96,8 +127,9 @@ class UsageWatcher:
         now = self.clock()
         if force_claude or self.claude_at is None or now - self.claude_at >= self.claude_every:
             self.claude = self.fetch_claude()
+            self.tavily = self.fetch_tavily(self.search)  # Tavily も Claude と同じ間隔で聞く
             self.claude_at = now
-        usage = {"claude": self.claude, "gemini": gemini_usage(self.gemini),
+        usage = {"claude": self.claude, "gemini": gemini_usage(self.gemini), "tavily": self.tavily,
                  "checked": datetime.now().strftime("%H:%M")}
         self.hub.set(usage=usage)
         return usage

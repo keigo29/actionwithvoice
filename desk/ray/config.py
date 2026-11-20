@@ -28,7 +28,9 @@ DEFAULTS: dict = {
         "language": "ja",
     },
     # lipsync：声をいったん書き出して大きさを測り、画面の円の内側の光を発音に合わせて光らせる（false で say に直接）
-    "tts": {"voice": "Kyoko", "rate": 210, "lipsync": True},
+    # engine：say（Mac の声）／voicevox（VOICEVOX のアプリを入れて使う。起動していなければ Ray が起動し、準備できるまでは say）
+    "tts": {"voice": "Kyoko", "rate": 210, "lipsync": True, "engine": "say",
+            "voicevox": {"url": "http://127.0.0.1:50021", "speaker": 3, "speed": 1.15, "app": "VOICEVOX", "timeout": 20}},
     # 返事の速さ優先：Sonnet・考える量は少なめ・MCP（Discord や Google Drive など）は読み込まない
     # （Opus の既定より、ひとことで 4.4→2.3 秒、デイリーを読むので 9.2→4.7 秒に縮んだ）
     "claude": {"bin": "claude", "model": "sonnet", "effort": "low", "mcp": False, "timeout": 180},
@@ -85,7 +87,8 @@ DEFAULTS: dict = {
     },
     # usage：Claude（Pro の枠）と Gemini（無料枠）の残りを画面の隅に出す
     # theme：画面の見た目。neon（暗い背景・オレンジの光）／blueprint（明るい設計図風）
-    "ui": {"enabled": True, "port": 8765, "open_browser": True, "usage": True, "theme": "neon"},
+    # browser：起動時に画面を開くブラウザ（Mac のアプリ名。"Safari"・"Google Chrome" など）。"" ならふだん使うブラウザ
+    "ui": {"enabled": True, "port": 8765, "open_browser": True, "usage": True, "theme": "neon", "browser": "Safari"},
     # 天気の場所（open-meteo）
     "weather": {"place": "横浜", "latitude": 35.44, "longitude": 139.64},
     # 会話の記録。Data/voice/ にすると Cmd の Actions がデイリーに書き足すので、別の場所に置く
