@@ -533,8 +533,6 @@ function buildBlueprint(el, { name = true } = {}) {
   const ink = 'stroke="var(--ring)" fill="none"';
   const blocks = (r, n, w, h) => Array.from({ length: n }, (_, i) => { const a = i * 360 / n;
     return `<rect x="${200 - w / 2}" y="${200 - r - h / 2}" width="${w}" height="${h}" transform="rotate(${a} 200 200)" fill="var(--fg)"/>`; }).join("");
-  const lobes = [45, 135, 225, 315].map((a) => { const cx = 200 + 158 * Math.cos(a * Math.PI / 180), cy = 200 + 158 * Math.sin(a * Math.PI / 180);
-    return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="30" ${ink} stroke-width=".7" stroke-dasharray="70 40"/>`; }).join("");
   el.innerHTML =
     '<div class="halo"></div><div class="drift">' +
     // 外の目盛りと方位の数字
@@ -542,10 +540,10 @@ function buildBlueprint(el, { name = true } = {}) {
       ringSvg(`<g class="spin" style="--t:120s"><circle cx="200" cy="200" r="194" ${ink} stroke-width=".8"/>
         <g stroke="var(--ring)" stroke-width=".6">${ticks(184, 190, 180, 10, 6)}</g>
         ${radialText(176, [[-90, "000"], [0, "090"], [90, "180"], [180, "270"], [-45, "N-E"], [135, "S-W"]])}</g>`)) +
-    // 点線の輪・小さな四角・4つの膨らみ
+    // 点線の輪・小さな四角
     L("--d:.12s;--ix:-14.3%;--iy:8.2%;--iz:-30deg;--iy3:62deg;--is:.66",
       ringSvg(`<g class="spin" style="--t:70s;--dir:reverse"><circle cx="200" cy="200" r="166" ${ink} stroke-width=".9" stroke-dasharray="1.5 4"/>
-        ${blocks(166, 12, 7, 3)}${lobes}</g>`)) +
+        ${blocks(166, 12, 7, 3)}</g>`)) +
     // 区切りの入った輪と、銅色の差し色
     L("--d:.20s;--ix:4.8%;--iy:-2.7%;--iz:-30deg;--iy3:62deg;--is:.66",
       ringSvg(`<g class="spin seg" style="--t:40s"><circle cx="200" cy="200" r="146" ${ink} stroke-width="1.2" stroke-dasharray="70 5 22 5 40 5 110 5 30 5 90 5"/>
