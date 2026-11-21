@@ -205,11 +205,42 @@
   .confirm .yn { display: flex; justify-content: center; gap: 18px; margin-top: 20px; font-size: 1.2em; }
   .confirm .yn span { padding: 8px 24px; border-radius: 999px; background: var(--panel2); }
   svg text { fill: var(--muted); font-size: 12px; }
-  .diagram { display: flex; justify-content: center; }
-  .diagram svg { width: 100%; max-width: min(100%, 1800px) !important; height: auto; max-height: calc(100vh - 190px); }
-  .diagram svg text { fill: inherit; font-size: inherit; }
-  .diagram .hl-node rect, .diagram .hl-node polygon, .diagram .hl-node circle, .diagram .hl-node path.basic {
-    stroke: var(--hi) !important; stroke-width: 3px !important; fill: color-mix(in srgb, var(--hi) 22%, #1b2030) !important; }
+  /* ---- 図（Mermaid）。色は JS（mermaidLook）が見た目ごとに渡す。ここは線の太さ・角・光らせ方・出し方 ---- */
+  .diagram { --mm-accent: var(--neon); --mm-dim: .55;
+    display: flex; justify-content: center; align-items: center; padding: 30px 26px; min-height: 240px;
+    background: radial-gradient(ellipse at 50% 45%, color-mix(in srgb, var(--neon) 7%, var(--panel)) 0%, var(--panel) 70%); }
+  .diagram svg { width: 100%; max-width: min(100%, 1800px) !important; height: auto; max-height: calc(100vh - 200px); }
+  /* 画面の札の .label（字の大きさ・字の間）が Mermaid の .label にも効いてしまうので戻す。
+     Mermaid は図の外（body の下の仮の場所 div#ddg…）で字の幅を測るので、そこにも効かせる（図の id は dg で始まる。R.diagram）。
+     測るときと描くときで字の大きさがずれると、箱から字がはみ出る */
+  :root :is([id^="ddg"], [id^="dg"]) :is(.label, .nodeLabel, .edgeLabel, .cluster-label) {
+    letter-spacing: normal; font-size: inherit; font-family: inherit; font-weight: 400; line-height: 1.5; }
+  .diagram svg text { font-weight: 400; }
+  .diagram g.node :is(rect, polygon, circle, ellipse, path) { stroke-width: 1.4px; }
+  .diagram g.node rect { rx: 10px; ry: 10px; }
+  .diagram .flowchart-link, .diagram .messageLine0, .diagram .messageLine1 { stroke-width: 1.6px; }
+  .diagram .edgeLabel { border-radius: 6px; }  /* 余白は足さない（測ったあとに大きさを変えると、線とずれる） */
+  .diagram .cluster rect { stroke-dasharray: 5 5; rx: 12px; ry: 12px; }
+  /* 話しているところ：光らせて、ほかは少し下げる */
+  /* 矢印の文字（.edgeLabel）は透明度を変えない。Safari では、文字を含む g の透明度を変えると、文字が左上に飛ぶ */
+  .diagram g.node, .diagram .flowchart-link { transition: opacity .45s ease; }
+  .diagram.has-hl g.node:not(.hl-node) { opacity: var(--mm-dim); }
+  .diagram.has-hl .flowchart-link { opacity: .5; }
+  .diagram .hl-node :is(rect, polygon, circle, ellipse, path) {
+    stroke: var(--mm-accent) !important; stroke-width: 2.6px !important;
+    fill: color-mix(in srgb, var(--mm-accent) 20%, var(--panel)) !important; }
+  /* Safari は、文字（foreignObject）を含む g に filter・transform をかけると位置がくずれる。光は形のほうにだけかける */
+  .diagram .hl-node :is(rect, polygon, circle, ellipse, path) { filter: drop-shadow(0 0 10px color-mix(in srgb, var(--mm-accent) 70%, transparent));
+    animation: mm-pulse 2.4s ease-in-out infinite; }
+  @keyframes mm-pulse { 50% { filter: drop-shadow(0 0 18px color-mix(in srgb, var(--mm-accent) 85%, transparent)); } }
+  /* 初めて出すときだけ、箱を順に出して線を描く（場面が変わって光る所だけ動くときは出し直さない）
+     動かすのは opacity だけ。g に CSS の transform をかけると、Safari では g の位置（transform 属性）が消えて、箱が左上に重なる */
+  .diagram.enter g.node, .diagram.enter .actor, .diagram.enter .mindmap-node, .diagram.enter .section {
+    animation: mm-in .5s ease-out both; animation-delay: calc(var(--i, 0) * 70ms); }
+  .diagram.enter .flowchart-link { stroke-dasharray: 1; stroke-dashoffset: 1; animation: mm-draw .7s ease-out forwards; animation-delay: calc(var(--i, 0) * 70ms + 150ms); }
+  @keyframes mm-in { from { opacity: 0; } }
+  @keyframes mm-draw { to { stroke-dashoffset: 0; } }
+  @media (prefers-reduced-motion: reduce) { .diagram.enter *, .diagram .hl-node { animation: none !important; stroke-dashoffset: 0 !important; } }
   .diagram pre { white-space: pre-wrap; color: var(--muted); }
 
   /* 使える残り（Claude の Pro 枠・Gemini の無料枠・Tavily の検索の枠） */
@@ -251,8 +282,18 @@
   [data-theme="blueprint"] .text { font-size: 18px; }
   [data-theme="blueprint"] a { color: #2f6f6a; }
   [data-theme="blueprint"] .pill.bad { color: var(--bad); }
-  [data-theme="blueprint"] .diagram .hl-node rect, [data-theme="blueprint"] .diagram .hl-node polygon,
-  [data-theme="blueprint"] .diagram .hl-node circle, [data-theme="blueprint"] .diagram .hl-node path.basic { fill: color-mix(in srgb, var(--hi) 18%, #f2f5f5) !important; }
+  /* 図：方眼の上に細い線。角は立てる。光らせるのは銅色で、ぼかしは弱く */
+  [data-theme="blueprint"] .diagram { --mm-accent: var(--copper); --mm-dim: .6;
+    background-color: var(--panel);
+    background-image: linear-gradient(color-mix(in srgb, var(--line) 35%, transparent) 1px, transparent 1px),
+                      linear-gradient(90deg, color-mix(in srgb, var(--line) 35%, transparent) 1px, transparent 1px);
+    background-size: 24px 24px; background-position: -1px -1px; }
+  [data-theme="blueprint"] .diagram g.node rect { rx: 2px; ry: 2px; }
+  [data-theme="blueprint"] .diagram g.node :is(rect, polygon, circle, ellipse, path) { stroke-width: 1.2px; }
+  [data-theme="blueprint"] .diagram .edgeLabel { border-radius: 2px; font-family: var(--font-mono); }
+  [data-theme="blueprint"] .diagram .hl-node :is(rect, polygon, circle, ellipse, path) { filter: none; animation: none; }
+  [data-theme="blueprint"] .diagram .hl-node :is(rect, polygon, circle, ellipse, path) { stroke-width: 2px !important;
+    fill: color-mix(in srgb, var(--copper) 14%, #fbfcfc) !important; }
   [data-theme="blueprint"] .card, [data-theme="blueprint"] .day, [data-theme="blueprint"] .row, [data-theme="blueprint"] .step,
   [data-theme="blueprint"] .hour, [data-theme="blueprint"] #usage .u { border-radius: 2px; box-shadow: none; }
   [data-theme="blueprint"] header.bar { border-bottom-color: var(--ring); }
@@ -451,32 +492,75 @@ let mermaidReady = null;
 function loadMermaid() {
   if (!mermaidReady) mermaidReady = new Promise((ok, ng) => {
     const sc = document.createElement("script");
-    sc.src = MERMAID_URL; sc.onload = () => {
-      window.mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict",
-        fontFamily: '"CP Mono", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif',
-        themeVariables: { background: "#0b0d12", primaryColor: "#1b2030", primaryBorderColor: "#4a5cff",
-          primaryTextColor: "#e8eaf0", lineColor: "#8a90a2", fontSize: "18px" } });
-      ok(window.mermaid);
-    };
+    sc.src = MERMAID_URL; sc.onload = () => ok(window.mermaid);
     sc.onerror = () => { mermaidReady = null; ng(new Error("図のライブラリを読めませんでした")); };
     document.head.appendChild(sc);
   });
   return mermaidReady;
 }
+/* 見た目ごとの図の色（Mermaid は color-mix や CSS の変数を読めないので、色をそのまま書く） */
+const MM_LOOK = {
+  neon: { bg: "#141821", node: "#191e2b", border: "#ff8c42", text: "#e8eaf0", line: "#7d8498", label: "#0b0d12", labelText: "#ffa463",
+          note: "#2a1c12", noteBorder: "#ff6a1a", cluster: "#10131b", root: "#3b2413",
+          scale: ["#3b2413", "#22283a", "#173230", "#35192a", "#302c16", "#1d2440"] },
+  blueprint: { bg: "#f2f5f5", node: "#fbfcfc", border: "#1d2a2f", text: "#1d2a2f", line: "#56676d", label: "#e4eaec", labelText: "#1d2a2f",
+          note: "#f6ebe2", noteBorder: "#c4703a", cluster: "#eef3f3", root: "#f0e3d8",
+          scale: ["#dfe8e9", "#d3e6e3", "#f0e3d8", "#e4e4ee", "#e7eedd", "#ece0e0"] },
+};
+function mermaidLook() {
+  const theme = document.documentElement.dataset.theme === "blueprint" ? "blueprint" : "neon";
+  const c = MM_LOOK[theme];
+  const v = { darkMode: theme === "neon", background: c.bg, fontSize: "20px",
+    fontFamily: '"CP Mono", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif',
+    primaryColor: c.node, primaryBorderColor: c.border, primaryTextColor: c.text,
+    secondaryColor: c.node, secondaryBorderColor: c.line, secondaryTextColor: c.text,
+    tertiaryColor: c.cluster, tertiaryBorderColor: c.line, tertiaryTextColor: c.text,
+    mainBkg: c.node, nodeBorder: c.border, nodeTextColor: c.text, textColor: c.text, titleColor: c.text, lineColor: c.line,
+    clusterBkg: c.cluster, clusterBorder: c.line, edgeLabelBackground: c.label,
+    actorBkg: c.node, actorBorder: c.border, actorTextColor: c.text, actorLineColor: c.line,
+    signalColor: c.text, signalTextColor: c.text, labelBoxBkgColor: c.node, labelBoxBorderColor: c.border, labelTextColor: c.text,
+    loopTextColor: c.text, noteBkgColor: c.note, noteBorderColor: c.noteBorder, noteTextColor: c.text,
+    activationBkgColor: c.label, activationBorderColor: c.border, sequenceNumberColor: c.bg };
+  c.scale.forEach((col, i) => { v["cScale" + i] = col; v["cScaleLabel" + i] = c.text; v["cScalePeer" + i] = c.border; v["cScaleInv" + i] = c.line; });
+  v.git0 = c.root; v.gitBranchLabel0 = c.text;  // マインドマップのまん中
+  return { theme, config: { startOnLoad: false, theme: "base", securityLevel: "strict", themeVariables: v,
+    flowchart: { padding: 18, nodeSpacing: 46, rankSpacing: 64, curve: "basis", htmlLabels: true },
+    sequence: { mirrorActors: false, actorMargin: 90, boxMargin: 14, noteMargin: 14, messageMargin: 44 },
+    mindmap: { padding: 14 } } };
+}
 let diagramSeq = 0;
+let lastDiagram = "";  // 同じ図のまま光る所だけ変わるときは、出す動きをくり返さない
 R.diagram = (d) => {
   const id = "dg" + (++diagramSeq);
   queueMicrotask(async () => {
     const box = document.getElementById(id); if (!box) return;
     try {
       const m = await loadMermaid();
-      const { svg } = await m.render(id + "svg", String(d.code || "").replace(/\\n/g, "\n"));
+      const look = mermaidLook();
+      m.initialize(look.config);  // 見た目を切り替えても合うよう、描くたびに渡す
+      // 文字の幅を測る前にフォントを読み終える。まだ使っていないフォントは ready では待てないので、名指しで読む（箱から字がはみ出さないように）
+      await Promise.all(['20px "Zen Kaku Gothic New"', '20px "CP Mono"'].map((f) => document.fonts.load(f, "あ亜A1").catch(() => null)));
+      await document.fonts.ready;
+      const code = String(d.code || "").replace(/\\n/g, "\n");
+      const { svg } = await m.render(id + "svg", code);
       if (!document.getElementById(id)) return;
       box.innerHTML = svg;
+      // 小さい図を画面いっぱいに引き伸ばさない（字が大きくなりすぎる）。もとの大きさの1.6倍まで
+      const el = box.querySelector("svg"), vb = el?.viewBox?.baseVal;
+      if (vb && vb.width) el.style.setProperty("max-width", `min(100%, ${Math.round(vb.width * 1.6)}px)`, "important");
+      const key = look.theme + "\n" + code;
+      if (key !== lastDiagram) {
+        lastDiagram = key;
+        box.classList.add("enter");
+        box.querySelectorAll("g.node, .actor, .mindmap-node, .section").forEach((g, i) => g.style.setProperty("--i", i));
+        box.querySelectorAll(".flowchart-link").forEach((e, i) => { e.setAttribute("pathLength", "1"); e.style.setProperty("--i", i); });
+      }
+      let hit = 0;
       for (const h of d.highlight || []) {
         box.querySelectorAll(`g.node[id^="flowchart-${CSS.escape(h)}-"], g[id="${CSS.escape(h)}"], g.node[data-id="${CSS.escape(h)}"]`)
-          .forEach((g) => g.classList.add("hl-node"));
+          .forEach((g) => { g.classList.add("hl-node"); hit++; });
       }
+      box.classList.toggle("has-hl", hit > 0);
     } catch (e) {
       document.getElementById("d" + id + "svg")?.remove();  // Mermaid が残すエラーの絵を消す
       box.innerHTML = `<div style="width:100%"><div class="err">図を描けませんでした（${esc(e.message || e)}）</div><pre>${esc(d.code)}</pre></div>`;

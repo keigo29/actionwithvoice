@@ -41,6 +41,11 @@ DEFAULTS: dict = {
     # （測ると、毎回読む量が約2.5万→約1.2万トークンに半減。空なら Claude Code の既定の道具を全部載せる）
     "claude": {"bin": "claude", "model": "sonnet", "effort": "low", "mcp": False, "timeout": 180,
                "tools": ["Read", "Grep", "Glob", "Edit", "MultiEdit", "Write", "TodoWrite", "Bash", "WebSearch", "WebFetch"]},
+    # コードの係（Codex CLI・ChatGPT のログインで動く）。コードの生成・修正・レビューを Claude より先に受ける。
+    # on_claude_limit：Claude が5時間の上限を返したら、持ち主のデータに関わらない話を受ける（limit_rest_min 分は Claude を起こさない）
+    # user_config：~/.codex/config.toml を読むか（false なら読まない。別の用途の既定モデルを持ち込まない）
+    "codex": {"enabled": False, "bin": "codex", "model": "", "effort": "", "sandbox": "workspace-write",
+              "user_config": False, "timeout": 180, "history": 4, "on_claude_limit": True, "limit_rest_min": 30},
     # 一次受けのローカル LLM（Ollama）。答えられないもの・止まっているときは Claude に回す
     "local": {
         "enabled": True,

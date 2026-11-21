@@ -28,16 +28,19 @@ from pathlib import Path
 from typing import Callable
 
 from . import visuals
-from .brain import Result, classify_reply
+from .brain import SCREEN_LITE, Result, classify_reply
+from .codex import CodexBrain, is_limit
 from .rewrite import Rewriter, tidy
 from .search import SearchBrain
 
 JST = timezone(timedelta(hours=9))
 HANDOFF = "@クロード"
 CONNECTING = "クロードに接続します。"  # Claude を起動するあいだに言うひとこと
+CONNECTING_CODEX = "コーデックスに接続します。"
+CLAUDE_LIMIT = "クロードが使える量の上限に達しました。お金や予定の話は、上限が戻ってから聞いてください。"
 WEEKDAYS = "月火水木金土日"
 
-SPEAK_RULES = "話し方：日本語だけ。全部で3文まで。1文は40字くらいまで。記号は「、」「。」「？」だけ。アルファベット、箇条書き、Markdown は使わない。"
+SPEAK_RULES = "話し方：言葉づかいは「です・ます」の丁寧語。タメ口や「〜わ」「〜のよ」「〜だね」のようなくだけた語尾は使わない。日本語だけ。全部で3文まで。1文は40字くらいまで。記号は「、」「。」「？」だけ。アルファベット、箇条書き、Markdown は使わない。"
 
 LOCAL_PROMPT = """あなたは、机の前にいる持ち主の音声アシスタント「レイ」です。返事はそのまま日本語で読み上げられます。
 今は{now}です。
@@ -81,6 +84,13 @@ WORK_RE = re.compile(
     r"|変え[てるたよ]|変更|直[しすそ]|修正|書き換|小文字|大文字|ロゴ|表記|フォント|見た目|デザイン"
     r"|天気|おはよう|朝のまとめ|画面|見せて|表に|図に|図で"  # 天気・朝のまとめは画面つきで答える
     r"|表示|キャプチャ|スクショ|スクリーンショット",  # 「サイトのキャプチャーを表示できる？」は Ray 自身の話（調べものではない）
+    re.I,
+)
+# コードの生成・修正・レビュー：Claude より先に Codex へ（PRIVATE_RE に当たるものは除く。Codex にはコードだけを渡す）
+CODE_RE = re.compile(
+    # 「ソース」「レビュー」「テスト」「エラー」だけでは決めない（「ウェブサイトをソースに教えて」が Codex に回った）
+    r"コード|プログラム|スクリプト|関数|メソッド|変数|バグ|リファクタ|デバッグ|実装|単体テスト|テストコード"
+    r"|正規表現|コンパイル|ビルド|プルリク|ライブラリ|パイソン|python|javascript|ジャバスクリプト|typescript|swift",
     re.I,
 )
 # Claude の問いかけへの短い返事（「はい」「お願い」など）。前が Claude なら、続きとして Claude に回す
@@ -216,6 +226,9 @@ def is_chat(text: str) -> bool:
 # 詳しい説明は小さいモデルの苦手なので、ローカルを飛ばして Gemini へ
 DEEP_RE = re.compile(r"詳しく|くわしく|詳細|しっかり説明")
 _SENTENCE_END = re.compile(r"[。？！?!\n]")
+SCENE_MARK = "@画面"
+# Gemini はときどき「@画面 diagram」を「@diagram」と書く。これも画面の指示として受ける（「@クロード」と取り違えて答えを捨てていた）
+_SHORT_SCENE = re.compile(r"^[@＠]\s*(steps|table|diagram|calc|web|sources)\b\s*")
 
 
 # 体調の質問に出すパネル（先にあるほど優先。1つの返事に1枚）
@@ -280,10 +293,15 @@ def needs_claude(text: str) -> bool:
     return bool(PRIVATE_RE.search(text) or WORK_RE.search(text))
 
 
-def continues_claude(history: list[tuple[str, str, str]], text: str) -> bool:
+def is_code(text: str) -> bool:
+    """コードの話で、持ち主のデータ（お金・仕事・予定・メモ）を含まないもの"""
+    return bool(CODE_RE.search(text)) and not PRIVATE_RE.search(text)
+
+
+def continues_claude(history: list[tuple[str, str, str]], text: str, by: str = "claude") -> bool:
     """直前に Claude が答えていて、それが問いかけ（？で終わる）か、今の発話が短い返事なら、続きとして Claude に回す
     （「調べて直しましょうか？」→「はい」を Gemini が受けると、話の流れを知らずに噛み合わない）"""
-    if not history or history[-1][2] != "claude":
+    if not history or history[-1][2] != by:
         return False
     if history[-1][1].rstrip().rstrip("」』）)").endswith(("？", "?")):
         return True
@@ -357,13 +375,31 @@ class _Sentences:
         self.on_text = on_text
         self.spoken: list[str] = []
         self.buf = ""
+        self.scene: str | None = None  # 「@画面」の行。次の文と一緒に渡す（場面に話す文がつくように）
 
     def feed(self, piece: str) -> str:
         """go（続ける）／handoff（まだ何も話していない。他に回す）／stop（ここで打ち切る）"""
         self.buf += piece
         if not self.spoken and HANDOFF in self.buf.replace(" ", ""):
             return "handoff"
-        while (m := _SENTENCE_END.search(self.buf)):
+        while True:
+            lead = self.buf.lstrip()
+            m = _SHORT_SCENE.match(lead)
+            if m:
+                lead = self.buf = f"{SCENE_MARK} {m.group(1)} " + lead[m.end():]
+            elif len(lead) < 12 and lead[:1] in "@＠" and not HANDOFF.startswith(lead.replace(" ", "")[:5]):
+                return "go"  # 「@dia」のように、まだ途中まで。何の指示か分かるまで待つ
+            if lead.startswith(SCENE_MARK):
+                # 画面の指示の行：JSON の中の「。」で切らないよう、行の終わりまで待つ
+                if "\n" not in lead:
+                    return "go"
+                line, self.buf = lead.split("\n", 1)
+                self._flush_scene()
+                self.scene = line.strip()
+                continue
+            m = _SENTENCE_END.search(self.buf)
+            if not m:
+                return "go"
             sentence, self.buf = self.buf[:m.end()], self.buf[m.end():]
             r = self._emit(sentence)
             if r != "go":
@@ -371,9 +407,23 @@ class _Sentences:
         return "go"
 
     def finish(self) -> str:
-        r = self._emit(self.buf)
+        lead = self.buf.lstrip()
+        m = _SHORT_SCENE.match(lead)
+        if m:
+            lead = f"{SCENE_MARK} {m.group(1)} " + lead[m.end():]
+        if lead.startswith(SCENE_MARK):
+            self._flush_scene()
+            self.scene, lead = lead.strip(), ""
+        r = self._emit(lead)
         self.buf = ""
+        self._flush_scene()
         return r
+
+    def _flush_scene(self) -> None:
+        """話す文のつかなかった画面の指示も、画面だけは出す"""
+        if self.scene:
+            self.on_text(self.scene)
+            self.scene = None
 
     def _emit(self, sentence: str) -> str:
         s = sentence.strip()
@@ -382,6 +432,8 @@ class _Sentences:
         if "@" in s:
             return "stop" if self.spoken else "handoff"
         self.spoken.append(s)
+        if self.scene:
+            s, self.scene = f"{self.scene}\n{s}", None
         self.on_text(s)
         return "go"
 
@@ -544,6 +596,7 @@ class GeminiBrain(_Cancelable):
     def __init__(self, cfg: dict, urlopen=urllib.request.urlopen, now=lambda: datetime.now(JST),
                  env: dict | None = None, store: Path | None = None):
         super().__init__()
+        self.cfg = cfg
         self.c = cfg["gemini"]
         self.store = store       # 使った回数を残すファイル（Ray を起動し直しても数え直さない）
         self.last_usage: dict | None = None  # 最後の返事で使ったトークン（promptcheck.py で見る）
@@ -616,6 +669,8 @@ class GeminiBrain(_Cancelable):
         else:
             system = GEMINI_PROMPT.format(now=_now_text(self.now()), rules=SPEAK_RULES, data=(
                 f"\n持ち主の体調・健康の記録（これを元に答える。無いことは無いと言う）：\n{data}" if data else ""))
+            if not data and self.cfg.get("ui", {}).get("enabled", True):
+                system += SCREEN_LITE  # 説明や手順には、画面（手順・表・図）をつける
         return self._run(system, contents, on_text, search)
 
     def summarize(self, system: str, history: list[tuple[str, str]], text: str,
@@ -695,9 +750,15 @@ class HybridBrain:
     """Brain と同じ形（ask / cancel）。会話の番号は自分で持ち、Claude のセッションは中で対応づける"""
 
     def __init__(self, cfg: dict, claude, local: LocalBrain | None = None, gemini: GeminiBrain | None = None,
-                 rewriter: Rewriter | None = None, search: SearchBrain | None = None):
+                 rewriter: Rewriter | None = None, search: SearchBrain | None = None, codex=None,
+                 clock=time.monotonic):
         self.cfg = cfg
         self.claude = claude
+        # コードの係と、Claude が上限のときの受け皿（codex.py）
+        self.use_codex = cfg.get("codex", {}).get("enabled", False)
+        self.codex = codex or CodexBrain(cfg)
+        self.clock = clock
+        self.claude_limited_at: float | None = None  # Claude が上限を返した時刻。しばらくは Claude を起こさない
         self.use_local = cfg["local"]["enabled"]
         self.local = local or LocalBrain(cfg)
         self.gemini = gemini or GeminiBrain(cfg)
@@ -746,6 +807,14 @@ class HybridBrain:
         outside_ok = [(q, a) for q, a, by in self.history if by != "claude"]
 
         reply = not confirmed and continues_claude(self.history, text)
+        # コードの話（と、Codex の問いかけへの返事）は、Claude より先に Codex へ。だめなら下で Claude
+        if self.use_codex and not confirmed and not reply and (
+                is_code(text) or continues_claude(self.history, text, by="codex")):
+            res = self._ask_codex(text, on_text, outside_ok, why="code")
+            if res:
+                return res
+            if self.cut.is_set():
+                return Result(answer="", session_id=self.conv, is_error=True, by="codex")
         if reply:
             pass  # Claude との話の続き（問いかけへの返事）：下で Claude へ
         elif not confirmed and is_weather(text):
@@ -808,6 +877,11 @@ class HybridBrain:
             if self.cut.is_set():
                 return Result(answer="", session_id=self.conv, is_error=True, by="local")
 
+        # Claude が上限のあいだは、持ち主のデータに関わらない話だけ Codex へ（起こしても上限の返事が来るだけ）
+        if self._claude_resting() and self._may_fall_back(text, confirmed, reply):
+            res = self._ask_codex(text, on_text, outside_ok, why="claude_limit")
+            if res:
+                return res
         prompt = text
         if self.unseen and not confirmed:
             lines = "\n".join(f"持ち主：{q}\nレイ：{a}" for q, a in self.unseen)
@@ -838,6 +912,18 @@ class HybridBrain:
                 print(f"（ローカルで依頼を変換しました：{rw.log['before_chars']}→{rw.log['after_chars']}字）")
         started = time.monotonic()
         res = self.claude.ask(prompt, on_text, session_id=session, confirmed=confirmed)
+        if is_limit(res) and not self.cut.is_set():
+            # 5時間の上限：コードや一般の話なら Codex が受ける。持ち主のデータの話は、待ってもらう
+            self.claude_limited_at = self.clock()
+            print(f"Claude が上限を返しました：{res.answer[:80]}")
+            if self._may_fall_back(text, confirmed, reply):
+                alt = self._ask_codex(text, on_text, outside_ok, why="claude_limit")
+                if alt:
+                    return alt
+            on_text(CLAUDE_LIMIT)
+            res.answer, res.spoken = CLAUDE_LIMIT, [CLAUDE_LIMIT]
+        elif res.answer and not res.is_error:
+            self.claude_limited_at = None
         res.rewrite = rw.log if rw else None
         if isinstance(res.usage, dict):
             # 送った文の長さ・続きの会話か・Ray 側で測った時間（起動を含む）も残す
@@ -853,8 +939,40 @@ class HybridBrain:
         res.by = "claude"
         return res
 
+    def _claude_resting(self) -> bool:
+        if self.claude_limited_at is None:
+            return False
+        rest = self.cfg.get("codex", {}).get("limit_rest_min", 30) * 60
+        return self.clock() - self.claude_limited_at < rest
+
+    def _may_fall_back(self, text: str, confirmed: bool, reply: bool) -> bool:
+        """Claude の代わりに Codex に渡してよいか。持ち主のデータの話・確認への返事・Claude の話の続きは渡さない"""
+        c = self.cfg.get("codex", {})
+        return (self.use_codex and c.get("on_claude_limit", True) and not confirmed and not reply
+                and not PRIVATE_RE.search(text))
+
+    def _ask_codex(self, text: str, on_text: Callable[[str], None], outside_ok: list[tuple[str, str]],
+                   why: str) -> Result | None:
+        """Codex に聞く。答えられなければ None（呼んだ側が Claude へ回す）"""
+        if self.cut.is_set():
+            return None
+        on_text(CONNECTING_CODEX)
+        # 渡すのは、Claude が答えたもの（お金・予定などを含みうる）を除いたやり取りだけ
+        n = self.cfg.get("codex", {}).get("history", 4)
+        res = self.codex.ask(text, on_text, history=outside_ok[-n:] if n else [])
+        if res.is_error or not res.answer:
+            return None
+        print("（Codex で答えました）")
+        if isinstance(res.usage, dict):
+            res.usage["why"] = why
+        self.history.append((text, res.answer, "codex"))
+        self.unseen.append((text, res.answer))
+        res.session_id, res.by = self.conv, "codex"
+        return res
+
     def cancel(self) -> None:
         self.cut.set()
+        self.codex.cancel()
         self.local.cancel()
         self.gemini.cancel()
         self.rewriter.cancel()

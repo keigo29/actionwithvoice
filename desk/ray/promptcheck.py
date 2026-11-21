@@ -55,7 +55,7 @@ def _total_in(u: dict) -> int:
 
 def analyze(rows: list[dict]) -> dict:
     claude = [d["usage"] for d in rows if d.get("brain") == "claude" and isinstance(d.get("usage"), dict)]
-    gemini = [d["usage"] for d in rows if d.get("brain") not in ("claude", "local", "canned")
+    gemini = [d["usage"] for d in rows if d.get("brain") not in ("claude", "codex", "local", "canned", "n8n")
               and isinstance(d.get("usage"), dict)]
     rws = [d["rewrite"] for d in rows if isinstance(d.get("rewrite"), dict)]
     llm = [r for r in rws if "ms" in r]  # 7B を呼んだもの

@@ -52,6 +52,8 @@ def check(cfg: dict) -> bool:
         print(f"{'✅' if good else '❌'} {label}" + (f" … {hint}" if hint and not good else ""))
 
     line(bool(shutil.which(cfg["claude"]["bin"])), "Claude Code（claude）", "npm i -g @anthropic-ai/claude-code して claude でログイン")
+    if cfg["codex"]["enabled"]:
+        line(bool(shutil.which(cfg["codex"]["bin"])), "Codex（codex）", "brew install --cask codex して codex login")
     if os.environ.get("ANTHROPIC_API_KEY"):
         print("⚠️  ANTHROPIC_API_KEY が設定されています。Rayは子プロセスに渡さないので Pro の枠で動きます")
     if cfg["local"]["enabled"]:
