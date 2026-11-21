@@ -582,7 +582,7 @@ function buildBlueprint(el, { name = true } = {}) {
         <g class="spin" style="--t:150s" fill="var(--fg)" opacity=".7">${dots(22, 200, 222, 11)}</g>`), "side-dim") +
     '</div>' +
     '<div class="beam"></div>' +
-    (name ? '<div class="name"><b>RAY</b></div>' : "");
+    (name ? '<div class="name"><b>Ray</b></div>' : "");
 }
 function buildHud(el, opts = {}) {
   if (theme === "blueprint") return buildBlueprint(el, opts);
@@ -621,7 +621,7 @@ function buildNeon(el, { name = true } = {}) {
         <g stroke="var(--ring)" stroke-width="1" opacity=".25"><line x1="200" y1="70" x2="200" y2="96"/><line x1="200" y1="304" x2="200" y2="330"/><line x1="70" y1="200" x2="96" y2="200"/><line x1="304" y1="200" x2="330" y2="200"/></g>`), "side-dim") +
     '</div>' +
     '<div class="beam"></div>' +
-    (name ? '<div class="name"><b>ray</b></div>' : "");
+    (name ? '<div class="name"><b>Ray</b></div>' : "");
 }
 buildHud($("orb"));
 buildHud($("orb2"), { name: false });
@@ -804,7 +804,7 @@ function layoutAnnot() {
   A.innerHTML = `<svg>${paths}${dots}</svg>${tags}
     <div class="read" style="left:${tx}px;top:${cy + R * .3}px"><small>LOCAL TIME</small><big id="a-time">--:--:--</big>
       <div class="bars" id="a-bars">${"<i></i>".repeat(14)}</div></div>
-    <div class="wm" style="left:${lx}px;top:${Math.max(16, cy - R - 10)}px">RAY / DESK ASSISTANT\nCMD LINK  ●  LOCAL</div>`;
+    <div class="wm" style="left:${lx}px;top:${Math.max(16, cy - R - 10)}px">ray / DESK ASSISTANT\nCMD LINK  ●  LOCAL</div>`;
   fillAnnot();
 }
 function fillAnnot() {
