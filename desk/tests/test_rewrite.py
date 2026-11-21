@@ -100,6 +100,17 @@ class WhenTest(Base):
         self.assertEqual(res.rewrite["reason"], "short")
         self.assertNotIn("before", res.rewrite)
 
+    def test_yes_reply_to_claude_is_not_rewritten(self):
+        # 問いかけへの「はい」「許可する」は、履歴が長くても変換しない（待ちが増え、別の頼みに書き換わるため）
+        self.cfg["rewrite"] = {"min_history_turns": 1}
+        o = FakeOllama(outputs=[GOOD])
+        h, claude = self.hybrid(o)
+        sid = h.ask("今日の予定は？", lambda t: None).session_id
+        res = h.ask("許可する", lambda t: None, session_id=sid)
+        self.assertEqual(o.bodies, [])
+        self.assertEqual(claude.calls[-1]["text"], "許可する")
+        self.assertIsNone(res.rewrite)
+
     def test_thresholds_can_be_changed(self):
         self.cfg["rewrite"] = {"min_chars": 3}
         r = rewrite.Rewriter(self.cfg)

@@ -25,6 +25,8 @@ VOICE_PROMPT = """\
 - Cmd のファイルを変えたら、git pull --rebase してからコミットし、git push する
 - 許可されていない操作（削除、強制的な push、Cmd 以外のリポジトリへの push、許可の無いコマンドなど）が必要なときは、実行せずに、返事を「確認です。」で始め、何をするかを1文で言い、「よいですか？」で終える
 - 長い作業の前には、最初に「検索中」のような短い一言を先に言う
+- 作業の途中のひとこと（「見つけました」「確認します」など）も、すべて日本語で書く。英語では一文も書かない
+- 持ち主には許可の画面は見えない。許可が必要なときは「許可の画面」と言わず、上の「確認です。」の形で聞く
 """
 
 SCREEN_PROMPT = """持ち主の前には画面があります。返事には毎回、プレゼンテーションのように画面をつけてください。
@@ -88,14 +90,17 @@ ALWAYS_DENY = [
     "Bash(git reset --hard:*)", "Bash(rm -rf /:*)",
 ]
 
-YES_RE = re.compile(r"^(はい|うん|お願い|おねがい|いいよ|いいです|大丈夫|実行|やって|オッケー|ok|okay|yes|どうぞ)", re.I)
+YES_RE = re.compile(r"^(はい|うん|ええ|お願い|おねがい|いいよ|いいです|いいね|大丈夫|実行|やって|進めて|すすめて|許可|きょか"
+                    r"|頼む|たのむ|オッケー|オーケー|ok|okay|yes|どうぞ)", re.I)
 NO_RE = re.compile(r"^(いいえ|いや|だめ|ダメ|やめ|ストップ|キャンセル|no|待って)", re.I)
 RESET_RE = re.compile(r"^(新しい話|リセット|話を変え)")
+# 返事の頭の言いよどみ（「え、いいよ」「あ、はい」）。読点などが続くときだけ外す（「ええ」は返事なので残す）
+_FILLER_RE = re.compile(r"^(?:えっと|ええと|えーと|えー|あの|あのー|うーん|え|あ)[、。,.\s]+")
 
 
 def classify_reply(text: str) -> str:
     """確認への返事を yes / no / other に分ける"""
-    t = text.strip().lstrip("、。 ")
+    t = _FILLER_RE.sub("", text.strip().lstrip("、。 "))
     if NO_RE.match(t):
         return "no"
     if YES_RE.match(t):
@@ -104,7 +109,11 @@ def classify_reply(text: str) -> str:
 
 
 def is_confirm(answer: str) -> bool:
-    return answer.strip().startswith(CONFIRM_PREFIX)
+    """確認の問いかけか。報告のあとに「確認です。…よいですか？」が続く返事も、確認として扱う"""
+    a = answer.strip()
+    if a.startswith(CONFIRM_PREFIX):
+        return True
+    return CONFIRM_PREFIX in a and a.rstrip("」』）) ").endswith(("よいですか？", "よいですか?", "いいですか？", "いいですか?"))
 
 
 def self_dir(cfg: dict) -> Path | None:

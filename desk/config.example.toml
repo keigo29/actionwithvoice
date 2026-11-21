@@ -14,6 +14,7 @@ engine = "auto"              # auto / mlx / whisper_cpp
 mlx_model = "mlx-community/whisper-large-v3-turbo"
 whisper_cpp_bin = "whisper-cli"
 whisper_cpp_model = "~/models/ggml-medium.bin"
+prompt = "クロード、クロードコード、レイ、ジェミニ、ソースコード、コミット、プッシュ、筋トレ、家計"  # 聞き取りのヒント（よく言う固有名詞。駅や町の名前を足すと聞き違いが減る）
 
 [tts]
 voice = "Kyoko"              # say -v '?' で一覧。システム設定で「Kyoko（拡張）」を入れると自然になる

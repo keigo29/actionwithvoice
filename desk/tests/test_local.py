@@ -108,6 +108,15 @@ class RuleTest(unittest.TestCase):
                   "最新のニュースを調べて", "体重の推移", "量子もつれを詳しく説明して"]:
             self.assertFalse(local.needs_claude(q), q)
 
+    def test_edit_requests_go_to_claude(self):
+        # Ray 自身を変える頼みは、言い方が違っても Claude（ソースコードを直す作業）
+        for q in ["ソースコードを編集してロゴを小文字にして", "レイの文字を小文字にしよう",
+                  "違う君のロゴの文字をレイを大文字から小文字に変えるの中心の文字",
+                  "ロゴの文字を変えたら教えて", "今からロゴの文字を変更してレイを小文字にする",
+                  "画面のフォントを直す", "天気の画面のソースコードを編集して"]:
+            self.assertTrue(local.needs_claude(q), q)
+            self.assertFalse(local.is_weather(q), q)
+
     def test_search_and_health(self):
         self.assertTrue(local.needs_search("最新のニュースを調べて"))
         self.assertTrue(local.needs_search("新しいアイフォーンの値段はいくら？"))
@@ -208,7 +217,7 @@ class HybridTest(unittest.TestCase):
         h, claude = hybrid(o)
         said = []
         res = h.ask("量子コンピューターの仕組み", said.append)
-        self.assertEqual(said, ["クロードの答えです。"])
+        self.assertEqual(said, [local.CONNECTING, "クロードの答えです。"])  # 起動のあいだに先にひとこと
         self.assertEqual(res.by, "claude")
         self.assertEqual(len(claude.calls), 1)
 

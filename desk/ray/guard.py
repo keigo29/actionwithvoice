@@ -95,6 +95,25 @@ def to_japanese(text: str) -> str:
     return t.strip(" 、")
 
 
+_JA = re.compile(r"[぀-ヿ一-龯々]")
+_EN_SPLIT = re.compile(r"(?<=[。？！?!])|(?<=[.:;])\s+|\n+")
+
+
+def drop_english(text: str) -> str:
+    """英語の文を捨てる（Claude が作業の途中に英語でつぶやくことがある。カタカナにして読むと意味が通らない）
+    日本語の文字が無く英字が3文字以上の文と、英字が日本語の文字の2倍より多い文を英語とみなす"""
+    parts = [p for p in _EN_SPLIT.split(text) if p and p.strip()]
+    keep = []
+    for part in parts:
+        ja, en = len(_JA.findall(part)), len(_LATIN.findall(part))
+        if (ja == 0 and en >= 3) or (en >= 6 and en > ja * 2):
+            continue
+        keep.append(part)
+    if len(keep) == len(parts):
+        return text  # 捨てるものが無ければ、元のまま（改行などを崩さない）
+    return " ".join(k.strip() for k in keep)
+
+
 def has_latin(text: str) -> bool:
     return bool(_LATIN.search(text))
 

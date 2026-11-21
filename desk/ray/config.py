@@ -26,6 +26,8 @@ DEFAULTS: dict = {
         "whisper_cpp_bin": "whisper-cli",
         "whisper_cpp_model": "~/models/ggml-medium.bin",
         "language": "ja",
+        # 聞き取りのヒント（よく言う固有名詞）。「クロード」が「黒銅」になるのを防ぐ。空ならヒントなし
+        "prompt": "クロード、クロードコード、レイ、ジェミニ、ソースコード、コミット、プッシュ、筋トレ、家計",
     },
     # lipsync：声をいったん書き出して大きさを測り、画面の円の内側の光を発音に合わせて光らせる（false で say に直接）
     # engine：say（Mac の声）／voicevox（VOICEVOX のアプリを入れて使う。起動していなければ Ray が起動し、準備できるまでは say）

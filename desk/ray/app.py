@@ -54,12 +54,14 @@ class Assistant:
         self.deck: list[scenes.Scene] = []  # 今の返事の場面
         self.pos = -1                        # 今見せている場面
         self.cut = threading.Event()         # 割り込まれた（キーを押した）
+        self.gen = 0                         # キーを押すたびに増やす。聞き取りの途中で次が来たら、前の分は捨てる
         self.rest: list[str] = []            # 決まった文の数を超えて、まだ話していない文
         self.shot = shots.capture
 
     # --- 割り込み（キーを押した・呼ばれた） ---
     def interrupt(self) -> None:
         """話している途中・考えている途中でも、すぐ止めて次を聞く"""
+        self.gen += 1
         self.cut.set()
         self.speaker.stop()
         self.sfx.play("listen")
@@ -69,11 +71,11 @@ class Assistant:
     def submit_audio(self, frames: bytes) -> None:
         if self.worker and self.worker.is_alive():
             self.worker.join(timeout=5)
-        self.worker = threading.Thread(target=self.handle_audio, args=(frames,), daemon=True)
+        self.worker = threading.Thread(target=self.handle_audio, args=(frames, self.gen), daemon=True)
         self.worker.start()
 
     # --- 中身 ---
-    def handle_audio(self, frames: bytes) -> None:
+    def handle_audio(self, frames: bytes, gen: int | None = None) -> None:
         if duration(frames) < MIN_SEC:
             self.hub.set(state="idle", text="")
             return
@@ -89,6 +91,10 @@ class Assistant:
                     self.speaker.say("聞き取りでエラーが出ました")
                     self.hub.set(state="idle", text="")
                     return
+            if gen is not None and gen != self.gen:
+                # 聞き取りの途中で、もう次のキーが押された：この分は答えない（2つ同時に Claude が動くのを防ぐ）
+                print(f"（前の聞き取りは捨てました：{text.strip()}）")
+                return
             if text.strip():
                 self.sfx.play("ack")  # 聞き取れた。考え始める合図
             self.handle_text(text)
@@ -139,13 +145,13 @@ class Assistant:
                 parsed = scenes.parse(t)
                 start = len(new_deck)
                 for sc in parsed:
-                    sc.speech = guard.to_japanese(sc.speech)
+                    sc.speech = guard.to_japanese(guard.drop_english(sc.speech))
                     self._prepare(sc)
                 new_deck.extend(parsed)
                 self.deck = new_deck
                 self._play(start, budget=budget)
                 return
-            said = budget.take(speech.clean_for_speech(t))
+            said = budget.take(speech.clean_for_speech(guard.drop_english(t)))
             if not said:
                 return
             print(f"🔊 {said}")

@@ -28,12 +28,13 @@ from pathlib import Path
 from typing import Callable
 
 from . import visuals
-from .brain import Result
+from .brain import Result, classify_reply
 from .rewrite import Rewriter, tidy
 from .search import SearchBrain
 
 JST = timezone(timedelta(hours=9))
 HANDOFF = "@クロード"
+CONNECTING = "クロードに接続します。"  # Claude を起動するあいだに言うひとこと
 WEEKDAYS = "月火水木金土日"
 
 SPEAK_RULES = "話し方：日本語だけ。全部で3文まで。1文は40字くらいまで。記号は「、」「。」「？」だけ。アルファベット、箇条書き、Markdown は使わない。"
@@ -53,6 +54,7 @@ GEMINI_PROMPT = """あなたは、机の前にいる持ち主の音声アシス�
 今は{now}です。
 一般知識、公開されている情報の説明、翻訳や言い換え、考え方の相談に、短く分かりやすく答えてください。
 持ち主の予定、メモ、ファイル、お金などのデータが必要なとき、ウェブで最新の情報を調べる必要があるとき、作業が必要なときは、答えずに「@クロード」とだけ書いてください。
+レイ自身（ロゴ、画面、文字、話し方、設定）を変える頼みも、ソースコードを直す作業なので「@クロード」とだけ書いてください。できないと断ったり、あとで知らせると約束したりしないこと。
 {rules}{data}"""
 
 GEMINI_SEARCH_PROMPT = """あなたは、机の前にいる持ち主の音声アシスタント「レイ」です。返事はそのまま日本語で読み上げられます。
@@ -73,13 +75,16 @@ PRIVATE_RE = re.compile(
 WORK_RE = re.compile(
     r"追加|書いて|書き込|記録して|つけて|消して|削除|直して|編集|変えて|保存|コミット|プッシュ|push|git|ギット"
     r"|ファイル|フォルダ|cmd|コマンド|リポジトリ|プロジェクト|テスト"
-    r"|コード|プログラム|スクリプト|関数|バグ"
+    r"|コード|ソース|プログラム|スクリプト|関数|バグ"
+    # 変える頼み（「変える」「変えたら」「変更して」「直す」）と、Ray 自身の見た目の言葉。
+    # 「ロゴを小文字にしよう」が Gemini に流れ「システムの設定上できません」と断られたので足した
+    r"|変え[てるたよ]|変更|直[しすそ]|修正|書き換|小文字|大文字|ロゴ|表記|フォント|見た目|デザイン"
     r"|天気|おはよう|朝のまとめ|画面|見せて|表に|図に|図で"  # 天気・朝のまとめは画面つきで答える
     r"|表示|キャプチャ|スクショ|スクリーンショット",  # 「サイトのキャプチャーを表示できる？」は Ray 自身の話（調べものではない）
     re.I,
 )
 # Claude の問いかけへの短い返事（「はい」「お願い」など）。前が Claude なら、続きとして Claude に回す
-REPLY_RE = re.compile(r"^(はい|うん|ええ|いいよ|いいね|お願い|おねがい|頼む|たのむ|やって|そうして|それで|オッケー|OK|オーケー"
+REPLY_RE = re.compile(r"^(はい|うん|ええ|いいよ|いいね|お願い|おねがい|頼む|たのむ|やって|そうして|それで|オッケー|OK|オーケー|許可|きょか|進めて"
                       r"|いいえ|いや|ううん|やめて|やめとく|いらない|大丈夫|だいじょうぶ|結構|けっこう)", re.I)
 REPLY_MAX = 15
 # 調べもの：Gemini に Google 検索で答えさせる（だめなら Claude の WebSearch）
@@ -733,7 +738,8 @@ class HybridBrain:
         # 外（Gemini）に渡すのは、Claude が答えたもの（お金・予定などを含みうる）を除いたやり取りだけ
         outside_ok = [(q, a) for q, a, by in self.history if by != "claude"]
 
-        if not confirmed and continues_claude(self.history, text):
+        reply = not confirmed and continues_claude(self.history, text)
+        if reply:
             pass  # Claude との話の続き（問いかけへの返事）：下で Claude へ
         elif not confirmed and is_weather(text):
             # 天気：Ray が先に取って画面を作り、同じ結果を話す側へ。話す側が無理なら Claude へ
@@ -799,10 +805,16 @@ class HybridBrain:
         if self.unseen and not confirmed:
             lines = "\n".join(f"持ち主：{q}\nレイ：{a}" for q, a in self.unseen)
             prompt = f"（ここまでのやり取り）\n{lines}\n（今の質問）\n{text}"
+        # Claude の起動には数秒かかるので、先にひとこと言って待たせる
+        if not self.cut.is_set():
+            on_text(CONNECTING)
         # Claude 行きと決まったあと：長い発話・長い履歴なら、ローカルで短い依頼に変換する（失敗したら原文のまま）
+        # 問いかけへの短い返事（「はい」「許可する」）は変換しない。待ちが増え、「許可するって」が別の頼みに書き換わったことがある
         rw = None
         session = self.claude_session
-        if not confirmed:
+        # 「はい」「許可する」のような返事だけを飛ばす（「それでお店はどこ？」のような続きの質問は変換する）
+        yes_no = reply and len(text.strip()) <= REPLY_MAX and classify_reply(text) != "other"
+        if not confirmed and not yes_no:
             # 参照先はコードのルールで決める（今の発話に無ければ、直前の質問から）
             # 下ごしらえした文で見る（言い直して消した日付や、呼びかけの「レイ」を拾わないため）
             now = self.rewriter.now()  # 変換と同じ「今」で日付を決める

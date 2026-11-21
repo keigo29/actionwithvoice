@@ -94,6 +94,15 @@ class BrainTest(unittest.TestCase):
         self.assertEqual(brain.classify_reply("待って"), "no")
         self.assertEqual(brain.classify_reply("ところで天気は？"), "other")
 
+    def test_confirm_after_report_and_more_yes_words(self):
+        # 報告のあとに確認が続く返事も確認待ちにする（21:37 の「もう直しました。…確認です。…よいですか？」）
+        self.assertTrue(brain.is_confirm("もう直しました。テストも通りました。確認です。コミットしてプッシュしますが、よいですか？"))
+        self.assertFalse(brain.is_confirm("コミットしてもよいですか？"))  # 「確認です」が無い問いかけは対象外
+        for q in ["許可する", "許可するって", "え、いいよ。", "あ、はい", "ええ", "進めて", "はいと言っているだろう。はい。"]:
+            self.assertEqual(brain.classify_reply(q), "yes", q)
+        self.assertEqual(brain.classify_reply("いいえ"), "no")
+        self.assertEqual(brain.classify_reply("それでお店はどこ？"), "other")
+
     def test_brain_ask_with_fake_process(self):
         class FakeProc:
             def __init__(self, cmd, **kw):
@@ -335,6 +344,20 @@ class AssistantTest(unittest.TestCase):
         self.assertEqual(b.calls[0]["text"], "今日の予定は？")
         self.assertFalse(a.busy.is_set())
 
+    def test_old_recording_is_dropped_when_key_pressed_again(self):
+        # 聞き取りの途中で次のキーが押されたら、前の分は答えない（2つ同時に Claude が動いた 21:38 の件）
+        a, b, s, hub = self.make(["はい"])
+
+        def slow_transcribe(wav, c):
+            a.interrupt()  # 聞き取っているあいだに、もう一度キーを押した
+            return "許可するって"
+        a.transcribe = slow_transcribe
+        a.handle_audio(b"\x00\x00" * RATE, gen=a.gen)
+        self.assertEqual(b.calls, [])
+        a.transcribe = lambda wav, c: "え、いいよ"
+        a.handle_audio(b"\x00\x00" * RATE, gen=a.gen)
+        self.assertEqual(b.calls[0]["text"], "え、いいよ")
+
     def test_interrupt(self):
         a, b, s, hub = self.make([])
         a.interrupt()
@@ -477,3 +500,25 @@ class OpenPageTest(unittest.TestCase):
             wb.assert_called_once_with("http://localhost:8765/")  # 開けなければ、ふだんのブラウザ
             m.open_page("http://localhost:8765/", "", run=ok)
             self.assertEqual(wb.call_count, 2)
+
+
+class EnglishAndSttTest(unittest.TestCase):
+    def test_drop_english(self):
+        from ray import guard
+        self.assertEqual(guard.drop_english("Found it: the center name is written as `ray`. I'll check how it's styled."), "")
+        self.assertEqual(guard.drop_english("Let me total November。"), "")
+        self.assertEqual(guard.drop_english("見つけました。Now checking the file. 直します。"), "見つけました。 直します。")
+        for t in ["Rayのロゴを直しました。", "サイドレイズは30.0キロです。", "gitでコミットしました。", "OK。"]:
+            self.assertEqual(guard.drop_english(t), t)
+
+    def test_prompt_echo_is_dropped(self):
+        p = "クロード、クロードコード、レイ、ジェミニ、ソースコード"
+        self.assertTrue(stt.echoes_prompt("クロード、クロードコード、レイ", p))
+        self.assertFalse(stt.echoes_prompt("クロード", p))  # 1語だけなら本当に言ったとみなす
+        self.assertFalse(stt.echoes_prompt("クロードを使って筋トレの傾向を教えて", p))
+
+    def test_warm_runs_once_and_never_raises(self):
+        calls = []
+        stt.warm(cfg(), transcribe_fn=lambda wav, c: calls.append(wav))
+        self.assertEqual(len(calls), 1)
+        stt.warm(cfg(), transcribe_fn=lambda wav, c: 1 / 0)  # 失敗しても起動は止めない

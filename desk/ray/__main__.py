@@ -235,6 +235,8 @@ def run(cfg: dict, use_ui: bool) -> None:
     sfx = Sfx(cfg)
     brain = make_brain(cfg)
     assistant = Assistant(cfg, brain, speaker, hub, sfx=sfx)
+    from . import stt
+    threading.Thread(target=stt.warm, args=(cfg,), daemon=True).start()  # 聞き取りのモデルを先に読み込む
     if use_ui and cfg["ui"]["enabled"]:
         from .usage import UsageWatcher
         if cfg["ui"].get("usage", True):
