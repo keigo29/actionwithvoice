@@ -45,6 +45,11 @@ HISTORY_TURNS = 12          # 要約に渡す直前のやり取りの数
 ANSWER_CHARS = 300          # 要約に渡す答え1つあたりの字数
 NUM_PREDICT = 300           # 変換の出力の上限（トークン）
 
+# 7B で言い換える理由。長い履歴だけのときは 7B を呼ばず、Claude のセッションをそのまま続ける
+# （記録で見ると、7B は平均6.6秒・4割近く失敗。減る字数は100字ほどで、Claude が毎回読む約2万トークンの0.5%ほど。
+#   続きの会話はキャッシュから読まれて安いので、要約して新しく始めても得にならない。python -m ray --prompt-report で確かめる）
+LLM_REASONS = ("long_utterance",)
+REFS_ALWAYS = True          # 先に見るファイルは、7B を呼ばないときもコードで添える（Claude が探しまわる往復を減らす）
 TEMPLATES = True            # 決まった頼みごと（やることの追加・記録・予定の確認）は、テンプレで依頼にする（templates.py）
 TEMPLATES_ON_SHORT = True   # テンプレは短い質問にも使う（コードだけで 7B を呼ばないので、待ちが増えない）
 
@@ -52,7 +57,7 @@ INSTRUCTION_MAX = 120       # 指示文の字数の目安（モデルへの指�
 SUMMARY_MAX = 200           # 要約の字数の目安（モデルへの指示）
 
 KEYS = ("enabled", "min_chars", "min_history_turns", "min_history_chars", "timeout", "fresh_session",
-        "templates", "templates_on_short")
+        "templates", "templates_on_short", "llm_reasons", "refs_always")
 
 # Ollama の format（構造化出力）。7B の出力の形をここで固定する
 SCHEMA = {
@@ -323,8 +328,15 @@ class Rewriter:
                            before=original, tidied=tidied, after=prompt, after_chars=len(prompt),
                            fresh_session=False, missing=missing_facts(tidied, t.prompt), with_original=False)
                 return Rewrite(prompt=prompt, fresh=False, log=log)
-        if not reason:
-            log["reason"] = "short" if s["enabled"] else "disabled"
+        llm = reason and any(r in s["llm_reasons"] for r in reason.split("+"))
+        if not llm:
+            refs = list(refs or [])
+            if s["enabled"] and s["refs_always"] and refs:
+                prompt = unseen_prompt(unseen, f"{text}\n（先に見るファイル：{'、'.join(refs)}）")
+                log.update(applied=True, reason=(reason or "short") + "+refs", refs=refs, after=prompt,
+                           after_chars=len(prompt), fresh_session=False, with_original=False)
+                return Rewrite(prompt=prompt, fresh=False, log=log)
+            log["reason"] = (reason + "+no_llm" if reason else "short") if s["enabled"] else "disabled"
             return Rewrite(log=log)
         log["reason"] = reason
         log["before"] = original

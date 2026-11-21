@@ -92,6 +92,37 @@ def voicevox_wav(text: str, path: str, c: dict, urlopen=urllib.request.urlopen) 
     return True
 
 
+def add_echo(path: str, delay_ms: int = 180, decay: float = 0.35, repeats: int = 3) -> bool:
+    """声のファイルにエコー（少し遅れて小さくなる声の重なり）をかける。16ビットのモノラルだけ。かけたら True"""
+    with wave.open(path, "rb") as w:
+        if w.getnchannels() != 1 or w.getsampwidth() != 2:
+            return False
+        params = w.getparams()
+        src = array.array("h", w.readframes(w.getnframes()))
+    if sys.byteorder == "big":
+        src.byteswap()
+    step = int(params.framerate * delay_ms / 1000)
+    if step <= 0 or repeats <= 0 or not src:
+        return False
+    n = len(src)
+    out = [float(x) for x in src] + [0.0] * (step * repeats)  # 響きが消えるまで、少し長くする
+    gain = 1.0
+    for r in range(1, repeats + 1):
+        gain *= decay
+        off = step * r
+        for i in range(n):
+            out[off + i] += src[i] * gain
+    peak = max(1.0, max(abs(x) for x in out))
+    scale = min(1.0, 32767 / peak)  # 重ねて割れるときだけ、全体を少し小さくする
+    res = array.array("h", (int(x * scale) for x in out))
+    if sys.byteorder == "big":
+        res.byteswap()
+    with wave.open(path, "wb") as w:
+        w.setparams(params)
+        w.writeframes(res.tobytes())
+    return True
+
+
 def voicevox_up(c: dict, urlopen=urllib.request.urlopen) -> bool:
     try:
         with urlopen(c["url"].rstrip("/") + "/version", timeout=1) as r:
@@ -119,6 +150,7 @@ class Speaker:
         # VOICEVOX：声をファイルで受け取って afplay で鳴らす（だめな文は say で）
         self.vv = cfg["tts"]["voicevox"] if cfg["tts"].get("engine") == "voicevox" and which("afplay") else None
         self.vv_warned = False
+        self.echo = cfg["tts"].get("echo") or {}  # [tts.echo] enabled = true でエコーをかける
         self.lipsync = bool(self.vv) or (
             bool(on_voice) and cfg["tts"].get("lipsync", True) and bool(which("afplay")) and bool(which("say")))
         self.q: queue.Queue = queue.Queue()
@@ -210,6 +242,12 @@ class Speaker:
             env = None
             try:
                 ok = self._write(text, path)
+                if ok and self.echo.get("enabled") and os.path.exists(path):
+                    try:
+                        add_echo(path, int(self.echo.get("delay_ms", 180)), float(self.echo.get("decay", 0.35)),
+                                 int(self.echo.get("repeats", 3)))
+                    except Exception as e:  # エコーをかけられなくても、そのまま読む
+                        print(f"エコーをかけられませんでした：{e}")
                 env = envelope(path) if ok and os.path.exists(path) else None
             except Exception as e:  # 書き出せなくても、読み上げは止めない
                 print(f"声の書き出しに失敗しました（そのまま読み上げます）：{e}")

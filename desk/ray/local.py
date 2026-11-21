@@ -546,6 +546,7 @@ class GeminiBrain(_Cancelable):
         super().__init__()
         self.c = cfg["gemini"]
         self.store = store       # 使った回数を残すファイル（Ray を起動し直しても数え直さない）
+        self.last_usage: dict | None = None  # 最後の返事で使ったトークン（promptcheck.py で見る）
         self.urlopen = urlopen
         self.now = now
         env = os.environ if env is None else env
@@ -658,11 +659,16 @@ class GeminiBrain(_Cancelable):
             return None
         self._hold(resp)
         sources: list[dict] = []
+        self.last_usage = None
 
         def piece_of(line: str) -> str:
             if not line.startswith("data:"):
                 return ""
             ev = json.loads(line[5:])
+            if ev.get("usageMetadata"):
+                m = ev["usageMetadata"]  # 流れの最後の分が、合計の量
+                self.last_usage = {"input": m.get("promptTokenCount", 0), "output": m.get("candidatesTokenCount", 0),
+                                   "thinking": m.get("thoughtsTokenCount", 0), "system_chars": len(system)}
             cand = (ev.get("candidates") or [{}])[0]
             for ch in cand.get("groundingMetadata", {}).get("groundingChunks", []):
                 web = ch.get("web") or {}
@@ -725,7 +731,8 @@ class HybridBrain:
         print(f"（{'ローカル' if by == 'local' else 'Gemini'}で答えました）")
         self.history.append((text, answer, by))
         self.unseen.append((text, answer))
-        return Result(answer=answer, session_id=self.conv, spoken=[answer], by=by, search=search)
+        usage = getattr(self.gemini, "last_usage", None) if by != "local" else None
+        return Result(answer=answer, session_id=self.conv, spoken=[answer], by=by, search=search, usage=usage)
 
     def ask(self, text: str, on_text: Callable[[str], None], session_id: str | None = None,
             confirmed: bool = False) -> Result:
@@ -829,8 +836,13 @@ class HybridBrain:
                 if rw.fresh:
                     session = None  # 要約を渡して新しく始める（これまでの分を Claude に読み直させない）
                 print(f"（ローカルで依頼を変換しました：{rw.log['before_chars']}→{rw.log['after_chars']}字）")
+        started = time.monotonic()
         res = self.claude.ask(prompt, on_text, session_id=session, confirmed=confirmed)
         res.rewrite = rw.log if rw else None
+        if isinstance(res.usage, dict):
+            # 送った文の長さ・続きの会話か・Ray 側で測った時間（起動を含む）も残す
+            res.usage.update(prompt_chars=len(prompt), resumed=bool(session),
+                             wall_ms=int((time.monotonic() - started) * 1000))
         res.search = search_log
         if res.session_id:
             self.claude_session = res.session_id

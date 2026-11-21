@@ -11,6 +11,11 @@ from .audio import RATE, SilenceDetector, rms
 FRAME = 1280  # 80ms。openWakeWord がこの長さで判定する
 
 
+def is_builtin(model: str) -> bool:
+    """openWakeWord に最初から入っている呼び名（hey_jarvis など）か。ファイルの道筋なら False"""
+    return bool(model) and "/" not in model and not model.endswith((".onnx", ".tflite"))
+
+
 class WakeListener:
     def __init__(self, cfg: dict, on_wake: Callable[[], None], on_audio: Callable[[bytes], None],
                  is_busy: Callable[[], bool]):
@@ -19,7 +24,12 @@ class WakeListener:
             raise RuntimeError("wake.model にウェイクワードのモデルを指定してください（README 参照）")
         from openwakeword.model import Model  # 使うときだけ読み込む
 
-        self.model = Model(wakeword_models=[w["model"]], inference_framework="onnx" if w["model"].endswith(".onnx") else "tflite")
+        if is_builtin(w["model"]):
+            from openwakeword.utils import download_models
+            download_models([w["model"]])  # 最初の1回だけ取ってくる（数MB）
+        # tflite は Mac の Python で入らないことが多いので、.tflite のファイルを指したときだけ使う
+        framework = "tflite" if w["model"].endswith(".tflite") else "onnx"
+        self.model = Model(wakeword_models=[w["model"]], inference_framework=framework)
         self.cfg = w
         self.on_wake = on_wake
         self.on_audio = on_audio

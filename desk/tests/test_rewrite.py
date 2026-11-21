@@ -258,7 +258,31 @@ class ConvertTest(Base):
         self.assertEqual(res.rewrite["tidied"], "今日の予定で、木曜の会議って何時からだっけ、カレンダーに入れた、どこだっけ")
         self.assertEqual(res.rewrite["refs"], ["2026/11/19/デイリー.md"])
 
+    def test_long_history_alone_keeps_session_without_7b(self):
+        # 既定：長い履歴だけなら 7B は呼ばず、セッションを続ける（続きはキャッシュで安い）。参照先だけコードで添える
+        o = FakeOllama(outputs=[GOOD])
+        h, claude = self.hybrid(o)
+        sid = None
+        for i in range(rewrite.MIN_HISTORY_TURNS - 1):
+            sid = h.ask(f"予定{i}は？", lambda t: None, session_id=sid).session_id
+        sid = h.ask("来週水曜19時の飲み会は誰と？", lambda t: None, session_id=sid).session_id
+        res = h.ask("それでお店はどこ？", lambda t: None, session_id=sid)
+        self.assertEqual(o.bodies, [])
+        self.assertIsNotNone(claude.calls[-1]["session_id"])
+        self.assertTrue(claude.calls[-1]["text"].startswith("それでお店はどこ？"))
+        self.assertIn("先に見るファイル：2026/11/25/デイリー.md", claude.calls[-1]["text"])
+        self.assertEqual(res.rewrite["reason"], "long_history+refs")
+
+    def test_refs_are_added_without_7b_on_short_question(self):
+        o = FakeOllama()
+        h, claude = self.hybrid(o)
+        res = h.ask("家計の残高は？", lambda t: None)
+        self.assertEqual(o.bodies, [])
+        self.assertIn("先に見るファイル：", claude.calls[0]["text"])
+        self.assertEqual(res.rewrite["reason"], "short+refs")
+
     def test_long_history_is_summarized_and_starts_fresh_session(self):
+        self.cfg["rewrite"] = {"llm_reasons": ["long_utterance", "long_history"]}  # 前の動き（設定で戻せる）
         out = {"依頼": "その飲み会の店の場所を答える", "要約": "来週水曜19時の飲み会は佐藤さんと行く"}
         o = FakeOllama(outputs=[out])
         h, claude = self.hybrid(o)

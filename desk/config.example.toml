@@ -21,6 +21,12 @@ voice = "Kyoko"              # say -v '?' で一覧。システム設定で「Ky
 rate = 210
 lipsync = true               # 声の大きさに合わせて、画面の円の内側を光らせる（false で say に直接読み上げ）
 
+[tts.echo]
+enabled = false              # 声にエコーをかける
+delay_ms = 180               # 響きの間隔（ミリ秒）。大きいほど山びこ、小さいほどお風呂っぽい
+decay = 0.35                 # 響きごとの小ささ（0〜1）。大きいほど長く残る
+repeats = 3                  # 響きの回数
+
 [claude]
 bin = "claude"
 model = "sonnet"             # 返事の速さ優先。空なら Claude Code の既定（Opus。2倍ほど遅い）
@@ -62,7 +68,7 @@ monthly_limit = 950          # 無料枠（月1,000クレジット）より少�
 
 [wake]
 enabled = false
-model = ""                   # openWakeWord のモデル（例 ~/models/ray.onnx）
+model = ""                   # 内蔵の呼び名（hey_jarvis / alexa / hey_mycroft / hey_rhasspy）か、学習した .onnx（例 ~/models/ray.onnx）
 threshold = 0.5
 silence_sec = 1.2
 max_sec = 15
@@ -87,3 +93,9 @@ push = true                  # 置いたら push する
 enabled = true               # 起動・画面を開く／閉じる・聞き取り開始・聞き取れたときの効果音
 volume = 0.5                 # 0〜1
 pitch = 0.5                  # 音の高さ。1 で元の高さ、0.5 で1オクターブ下。小さいほど低い
+
+# n8n などから Ray に話させる（POST http://127.0.0.1:8765/notify）
+# token は16文字以上の合言葉（python3 -c 'import secrets; print(secrets.token_urlsafe(24))' で作れる）
+[notify]
+enabled = false
+token = ""

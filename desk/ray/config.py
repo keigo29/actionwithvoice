@@ -32,10 +32,15 @@ DEFAULTS: dict = {
     # lipsync：声をいったん書き出して大きさを測り、画面の円の内側の光を発音に合わせて光らせる（false で say に直接）
     # engine：say（Mac の声）／voicevox（VOICEVOX のアプリを入れて使う。起動していなければ Ray が起動し、準備できるまでは say）
     "tts": {"voice": "Kyoko", "rate": 210, "lipsync": True, "engine": "say",
-            "voicevox": {"url": "http://127.0.0.1:50021", "speaker": 3, "speed": 1.15, "app": "VOICEVOX", "timeout": 20}},
+            "voicevox": {"url": "http://127.0.0.1:50021", "speaker": 3, "speed": 1.15, "app": "VOICEVOX", "timeout": 20},
+            # エコー：delay_ms ずつ遅らせて、decay 倍ずつ小さくした声を repeats 回重ねる（say で直接読むときはかからない）
+            "echo": {"enabled": False, "delay_ms": 180, "decay": 0.35, "repeats": 3}},
     # 返事の速さ優先：Sonnet・考える量は少なめ・MCP（Discord や Google Drive など）は読み込まない
     # （Opus の既定より、ひとことで 4.4→2.3 秒、デイリーを読むので 9.2→4.7 秒に縮んだ）
-    "claude": {"bin": "claude", "model": "sonnet", "effort": "low", "mcp": False, "timeout": 180},
+    # tools：Claude に載せる道具。使わない道具（サブエージェントなど）の説明も毎回読まれるので、Ray が使うものだけにする
+    # （測ると、毎回読む量が約2.5万→約1.2万トークンに半減。空なら Claude Code の既定の道具を全部載せる）
+    "claude": {"bin": "claude", "model": "sonnet", "effort": "low", "mcp": False, "timeout": 180,
+               "tools": ["Read", "Grep", "Glob", "Edit", "MultiEdit", "Write", "TodoWrite", "Bash", "WebSearch", "WebFetch"]},
     # 一次受けのローカル LLM（Ollama）。答えられないもの・止まっているときは Claude に回す
     "local": {
         "enabled": True,
@@ -95,6 +100,9 @@ DEFAULTS: dict = {
     "weather": {"place": "横浜", "latitude": 35.44, "longitude": 139.64},
     # 会話の記録。Data/voice/ にすると Cmd の Actions がデイリーに書き足すので、別の場所に置く
     "log": {"enabled": True, "push": True, "dir": "Data/ray"},
+    # n8n などから Ray に話させる受け口（POST http://127.0.0.1:{ui.port}/notify）。token が空なら受け付けない
+    # wait_sec：会話の途中なら終わるまで待つ。これより長く待ったら捨てる
+    "notify": {"enabled": False, "token": "", "wait_sec": 600, "max_bytes": 65536},
     # 効果音（起動・画面を開く／閉じる・聞き取り開始・聞き取れた）。Mac の afplay で鳴らす
     "sfx": {"enabled": True, "volume": 0.5, "pitch": 0.5},
 }

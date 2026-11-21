@@ -1,12 +1,20 @@
-"""状態表示：光る円の HTML 1枚と、状態を流す SSE（http://localhost:8765）"""
+"""状態表示：光る円の HTML 1枚と、状態を流す SSE（http://localhost:8765）
+
+POST /notify：n8n などから Ray に話させる（[notify]）。JSON で {"text": "…", "title": "…"}。
+text は Claude の返事と同じ形で、「@画面 種類 {JSON}」の行も使える。
+合言葉（X-Ray-Token か Authorization: Bearer）が合うときだけ受け付ける。
+ブラウザのページから勝手に送られないよう、Content-Type が application/json のものだけ受ける
+"""
 
 from __future__ import annotations
 
+import hmac
 import json
 import queue
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Callable
 
 from . import shots
 
@@ -41,10 +49,60 @@ class StateHub:
                 self.listeners.remove(q)
 
 
-def serve(hub: StateHub, port: int) -> ThreadingHTTPServer:
+def check_notify(headers, body: bytes, token: str, max_bytes: int = 65536) -> tuple[int, dict]:
+    """受け取った知らせを確かめる。(HTTP の番号, 中身 か エラー)"""
+    if not token:
+        return 403, {"error": "config.toml の [notify] token が空です"}
+    given = headers.get("X-Ray-Token") or ""
+    auth = headers.get("Authorization") or ""
+    if not given and auth.lower().startswith("bearer "):
+        given = auth[7:].strip()
+    if not hmac.compare_digest(given.encode(), token.encode()):
+        return 401, {"error": "合言葉が違います"}
+    if not (headers.get("Content-Type") or "").lower().startswith("application/json"):
+        return 415, {"error": "Content-Type は application/json にしてください"}
+    if len(body) > max_bytes:
+        return 413, {"error": f"{max_bytes} バイトまでです"}
+    try:
+        d = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return 400, {"error": "JSON が読めません"}
+    if not isinstance(d, dict) or not str(d.get("text") or "").strip():
+        return 400, {"error": "text が空です"}
+    return 202, {"text": str(d["text"]).strip(), "title": str(d.get("title") or "").strip()}
+
+
+def serve(hub: StateHub, port: int, on_notify: Callable[[str, str], int] | None = None,
+          notify_cfg: dict | None = None) -> ThreadingHTTPServer:
+    notify_cfg = notify_cfg or {}
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
+
+        def _json(self, code: int, d: dict) -> None:
+            body = json.dumps(d, ensure_ascii=False).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            if self.path.split("?", 1)[0] != "/notify" or not on_notify:
+                self.send_error(404)
+                return
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                n = 0
+            limit = int(notify_cfg.get("max_bytes", 65536))
+            body = self.rfile.read(min(n, limit + 1)) if n > 0 else b""
+            code, d = check_notify(self.headers, body, notify_cfg.get("token", ""), limit)
+            if code != 202:
+                self._json(code, d)
+                return
+            self._json(202, {"ok": True, "queued": on_notify(d["text"], d["title"])})
 
         def do_GET(self):
             if self.path.split("?", 1)[0] == "/":  # 「/?theme=blueprint」のように見た目を選べる

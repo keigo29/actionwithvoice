@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import queue
 import tempfile
 import threading
 import time
@@ -9,15 +10,16 @@ from pathlib import Path
 
 import re
 
-from . import cmdlog, guard, scenes, shots, speech, stt, visuals
+from . import canned, cmdlog, guard, scenes, shots, speech, stt, visuals
 from .audio import MIN_SEC, duration, save_wav
-from .brain import RESET_RE, classify_reply, is_confirm
+from .brain import RESET_RE, Result, classify_reply, is_confirm
 
 SOURCE_SHOTS = 3  # 調べたページの一覧で写真を撮る数（1件 数秒かかるので上位だけ）
 
 CONFIRMED_PROMPT = "はい、さきほど確認した操作を実行してください。終わったら結果を短く教えてください。"
 MORE_SCENES = "続きは、次と言ってください。"
 MORE_TEXT = "続きを聞くときは、続きと言ってください。"
+NOTICE_POLL = 0.3  # 知らせを待たせているとき、会話が終わったかを見る間隔（秒）
 
 # 画面を見せながら話しているとき（話し終えたあとも）、Claude を呼ばずに扱う言葉
 _END = r"[。.!！]?$"
@@ -56,7 +58,10 @@ class Assistant:
         self.cut = threading.Event()         # 割り込まれた（キーを押した）
         self.gen = 0                         # キーを押すたびに増やす。聞き取りの途中で次が来たら、前の分は捨てる
         self.rest: list[str] = []            # 決まった文の数を超えて、まだ話していない文
+        self.last_qa: tuple[str, str] | None = None  # 直前の質問と、画面の指示つきの答え（定番に保存する用）
         self.shot = shots.capture
+        self.notices: queue.Queue = queue.Queue()  # n8n などから来た知らせ。会話が終わってから話す
+        self.notice_thread: threading.Thread | None = None
 
     # --- 割り込み（キーを押した・呼ばれた） ---
     def interrupt(self) -> None:
@@ -73,6 +78,78 @@ class Assistant:
             self.worker.join(timeout=5)
         self.worker = threading.Thread(target=self.handle_audio, args=(frames, self.gen), daemon=True)
         self.worker.start()
+
+    # --- 外からの知らせ（n8n など） ---
+    def notify(self, text: str, title: str = "") -> int:
+        """知らせを順番待ちに入れる。待っている数を返す"""
+        self.notices.put((text, title, self.clock()))
+        if not (self.notice_thread and self.notice_thread.is_alive()):
+            self.notice_thread = threading.Thread(target=self._notice_loop, daemon=True)
+            self.notice_thread.start()
+        return self.notices.qsize()
+
+    def idle(self) -> bool:
+        """話しかけられていない・答えていない（確認を待っているだけなら、知らせてよい）"""
+        working = self.worker is not None and self.worker.is_alive()
+        return not self.busy.is_set() and not working and self.hub.state.get("state") in ("idle", "confirm")
+
+    def _notice_loop(self) -> None:
+        limit = self.cfg.get("notify", {}).get("wait_sec", 600)
+        while True:
+            try:
+                text, title, at = self.notices.get(timeout=5)
+            except queue.Empty:
+                return
+            while not self.idle() and self.clock() - at < limit:
+                time.sleep(NOTICE_POLL)
+            if not self.idle():
+                print(f"（知らせを捨てました。会話が{limit}秒より長く続いたため：{title or text[:20]}）")
+                continue
+            try:
+                self.announce(text, title)
+            except Exception as e:  # 知らせ1件の失敗で、受け口ごと止めない
+                print(f"知らせのエラー：{e}")
+
+    def announce(self, text: str, title: str = "") -> None:
+        """知らせを話す。「@画面」の行があれば画面も出す。Claude も Gemini も呼ばない"""
+        self.busy.set()
+        try:
+            self.cut.clear()
+            label = f"n8n：{title}" if title else "n8n から"
+            print(f"📨 {label}")
+            self.sfx.play("ack")
+            budget = guard.Budget()
+            self.hub.set(state="speaking", question=label, text="", **({} if self.awaiting_confirm else {"scene": None}))
+            if scenes.has_directive(text):
+                parsed = scenes.parse(text)
+                for sc in parsed:
+                    sc.speech = guard.to_japanese(guard.drop_english(sc.speech))
+                    self._prepare(sc)
+                self.deck, self.on_screen = parsed, None
+                self._play(0, budget=budget)
+            else:
+                said = budget.take(speech.clean_for_speech(text))
+                if said:
+                    print(f"🔊 {said}")
+                    self.hub.set(state="speaking", text=said)
+                    self.speaker.say(said)
+            if budget.overflow and not self.cut.is_set():
+                if self.deck and self.pos < len(self.deck) - 1:
+                    self.speaker.say(MORE_SCENES)
+                else:
+                    self.rest = budget.rest
+                    self.speaker.say(MORE_TEXT)
+            answer = scenes.strip_directives(text) or text
+            self.log(self.cfg, label, answer, extra={"brain": "n8n"})
+            self.speaker.wait(timeout=120)
+            if self.cut.is_set():
+                return  # 途中で話しかけられた：状態はそちらに任せる
+            extra = {}
+            if self.awaiting_confirm:
+                extra["scene"] = {"kind": "confirm", "data": {"text": self.hub.state.get("answer", "")}, "index": 0, "total": 1}
+            self.hub.set(state="confirm" if self.awaiting_confirm else "idle", answer=answer, text="", **extra)
+        finally:
+            self.busy.clear()
 
     # --- 中身 ---
     def handle_audio(self, frames: bytes, gen: int | None = None) -> None:
@@ -118,6 +195,8 @@ class Assistant:
             return self._local(question, "新しい話にしますね")
         if not self.awaiting_confirm and self._navigate(question):
             return "（画面の操作）"
+        if not self.awaiting_confirm and canned.is_save(question):
+            return self._save_canned(question)
         self.rest = []
 
         confirmed = False
@@ -158,8 +237,17 @@ class Assistant:
             self.hub.set(state="speaking", text=said)
             self.speaker.say(said)
 
-        res = self.brain.ask(prompt, on_text, session_id=session, confirmed=confirmed)
+        hit = None if (self.awaiting_confirm or confirmed) else canned.find(question, canned.dirs_for(self.cfg))
+        if hit:
+            # 定番の返事：用意しておいたものをそのまま流す（Claude も Gemini も呼ばない）
+            print(f"（定番の返事を使いました：{hit.name}）")
+            on_text(hit.body)
+            res = Result(answer=hit.body, by="canned")
+        else:
+            res = self.brain.ask(prompt, on_text, session_id=session, confirmed=confirmed)
         raw = res.answer
+        if not res.is_error and not hit:
+            self.last_qa = (question, raw)
         res.answer = guard.to_japanese(scenes.strip_directives(raw)) or raw
         if budget.overflow and not self.cut.is_set() and not res.is_error:
             if self.deck and self.pos < len(self.deck) - 1:
@@ -176,7 +264,7 @@ class Assistant:
         self.log(self.cfg, question, res.answer,
                  extra={"raw": raw if raw.strip() != res.answer else "", "trimmed": budget.overflow,
                         "brain": getattr(res, "by", ""), "rewrite": getattr(res, "rewrite", None),
-                        "search": getattr(res, "search", None)})
+                        "search": getattr(res, "search", None), "usage": getattr(res, "usage", None)})
         self.speaker.wait(timeout=120)
         extra = {}
         if self.awaiting_confirm:
@@ -297,6 +385,15 @@ class Assistant:
         self.speaker.wait(timeout=120)
         self.hub.set(state="idle", text="")
         return True
+
+    def _save_canned(self, question: str) -> str:
+        """「今の答えを定番にして」：直前の答えを、同じ言い方で聞かれたら返す定番として保存する"""
+        if not self.last_qa:
+            return self._local(question, "定番にできる答えが、まだありません")
+        q, raw = self.last_qa
+        path = canned.save(q, raw, canned.saved_dir(self.cfg))
+        print(f"（定番に保存しました：{path}）")
+        return self._local(question, "今の答えを定番にしました。次からは同じ答えをすぐ返します")
 
     def _local(self, question: str, answer: str) -> str:
         """Claude を呼ばずに返す返事"""

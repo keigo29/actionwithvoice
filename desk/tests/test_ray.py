@@ -34,6 +34,11 @@ class BrainTest(unittest.TestCase):
         # 速さ優先の既定：Sonnet・考える量は少なめ・MCP は読み込まない
         self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
         self.assertEqual(cmd[cmd.index("--effort") + 1], "low")
+        # 載せる道具は Ray が使うものだけ（サブエージェントなどの説明を毎回読ませない）
+        tools = cmd[cmd.index("--tools") + 1].split(",")
+        self.assertIn("Bash", tools)
+        self.assertNotIn("Agent", tools)
+        self.assertNotIn("--tools", brain.build_command(cfg(claude={**cfg()["claude"], "tools": []})))
 
     def test_build_command_can_edit_itself_but_not_its_key(self):
         cmd = brain.build_command(cfg())
@@ -522,3 +527,45 @@ class EnglishAndSttTest(unittest.TestCase):
         stt.warm(cfg(), transcribe_fn=lambda wav, c: calls.append(wav))
         self.assertEqual(len(calls), 1)
         stt.warm(cfg(), transcribe_fn=lambda wav, c: 1 / 0)  # 失敗しても起動は止めない
+
+
+class PromptCheckTest(unittest.TestCase):
+    def test_usage_is_parsed_from_result(self):
+        lines = [json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Read"}, {"type": "text", "text": "読みました"}]}}),
+                 json.dumps({"type": "result", "subtype": "success", "result": "読みました", "num_turns": 2, "duration_ms": 1500,
+                             "total_cost_usd": 0.01, "usage": {"input_tokens": 3, "cache_creation_input_tokens": 400,
+                                                                "cache_read_input_tokens": 12000, "output_tokens": 50}})]
+        res = brain.parse_stream(lines, lambda t: None)
+        self.assertEqual(res.usage["cache_read"], 12000)
+        self.assertEqual((res.usage["turns"], res.usage["tools"]), (2, ["Read"]))
+
+    def test_report_flags_slow_and_failing_rewrite(self):
+        from ray import promptcheck
+        with tempfile.TemporaryDirectory() as d:
+            c = cfg(cmd_dir=d)
+            folder = Path(d) / c["log"]["dir"]
+            folder.mkdir(parents=True)
+            now = datetime.now(JST)
+            recs = [{"brain": "claude", "rewrite": {"reason": "long_history", "ms": 7000, "applied": True, "before_chars": 6, "after_chars": 90},
+                     "usage": {"input": 2, "cache_write": 500, "cache_read": 20000, "output": 30, "turns": 1, "tools": [], "prompt_chars": 90}},
+                    {"brain": "claude", "rewrite": {"reason": "long_history", "ms": 10000, "applied": False, "error": "timeout"},
+                     "usage": {"input": 2, "cache_write": 500, "cache_read": 20000, "output": 30, "turns": 5, "tools": ["Grep"] * 4, "prompt_chars": 20}},
+                    {"brain": "gemini", "usage": {"input": 300, "output": 40, "system_chars": 200}}]
+            for i, r in enumerate(recs):
+                r["datetime"] = (now - timedelta(minutes=i)).isoformat()
+                (folder / f"{i}.json").write_text(json.dumps(r), encoding="utf-8")
+            (folder / "old.json").write_text(json.dumps({"datetime": (now - timedelta(days=30)).isoformat(), "brain": "claude"}))
+            a = promptcheck.analyze(promptcheck.load(c, days=7))
+            self.assertEqual(a["records"], 3)
+            text = "\n".join(a["findings"])
+            for word in ["待ちが平均8.5秒", "50%が失敗", "3倍より長く", "決まった部分"]:
+                self.assertIn(word, text)
+            self.assertIn("■ Claude", promptcheck.report(a, 7))
+
+
+class WakeTest(unittest.TestCase):
+    def test_builtin_or_file(self):
+        from ray.wake import is_builtin
+        self.assertTrue(is_builtin("hey_jarvis"))
+        for m in ["", "~/models/ray.onnx", "/Users/me/models/ray.tflite", "ray.onnx"]:
+            self.assertFalse(is_builtin(m), m)

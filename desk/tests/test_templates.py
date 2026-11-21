@@ -117,11 +117,11 @@ class FlowTest(Base):
         self.assertEqual(o.bodies, [])
 
     def test_can_turn_off(self):
-        self.cfg["rewrite"] = {"templates": False}
+        self.cfg["rewrite"] = {"templates": False, "refs_always": False}
         h, claude = self.hybrid(FakeOllama())
         h.ask("今日の予定は？", lambda t: None)
         self.assertEqual(claude.calls[0]["text"], "今日の予定は？")
-        self.cfg["rewrite"] = {"templates_on_short": False}
+        self.cfg["rewrite"] = {"templates_on_short": False, "refs_always": False}
         h, claude = self.hybrid(FakeOllama())
         h.ask("今日の予定は？", lambda t: None)
         self.assertEqual(claude.calls[0]["text"], "今日の予定は？")

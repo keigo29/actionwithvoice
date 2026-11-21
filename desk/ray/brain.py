@@ -141,6 +141,8 @@ def build_command(cfg: dict, session_id: str | None = None, confirmed: bool = Fa
         "--allowedTools", *(SAFE_TOOLS + (CONFIRMED_TOOLS if confirmed else [])),
         "--disallowedTools", *deny,
     ]
+    if c.get("tools"):
+        cmd += ["--tools", ",".join(c["tools"])]  # 載せる道具を絞る（毎回読む道具の説明が減る）
     if me:
         cmd += ["--add-dir", str(me)]  # Cmd のほかに、自分のフォルダにも書き込める
     if session_id:
@@ -171,11 +173,13 @@ class Result:
     by: str = "claude"  # 答えた頭脳（claude / local）
     rewrite: dict | None = None  # Claude に回す前のプロンプト変換の記録（rewrite.py）
     search: dict | None = None   # 調べものの経路と結果（search.py）
+    usage: dict | None = None    # 実際に使った量（トークン・時間・往復の回数）。プロンプトの効率を確かめる用（promptcheck.py）
 
 
 def parse_stream(lines: Iterable[str], on_text: Callable[[str], None]) -> Result:
     """stream-json の行を読み、文が届くたびに on_text を呼ぶ"""
     res = Result()
+    tools: list[str] = []
     for line in lines:
         line = line.strip()
         if not line:
@@ -188,12 +192,25 @@ def parse_stream(lines: Iterable[str], on_text: Callable[[str], None]) -> Result
             res.session_id = ev["session_id"]
         if ev.get("type") == "assistant":
             for block in ev.get("message", {}).get("content", []):
+                if block.get("type") == "tool_use":
+                    tools.append(block.get("name", ""))
                 if block.get("type") == "text" and block.get("text", "").strip():
                     text = block["text"].strip()
                     res.spoken.append(text)
                     on_text(text)
         elif ev.get("type") == "result":
             res.is_error = bool(ev.get("is_error")) or ev.get("subtype") != "success"
+            u = ev.get("usage") or {}
+            res.usage = {
+                "input": u.get("input_tokens", 0),
+                "cache_write": u.get("cache_creation_input_tokens", 0),
+                "cache_read": u.get("cache_read_input_tokens", 0),
+                "output": u.get("output_tokens", 0),
+                "turns": ev.get("num_turns"),
+                "tools": tools,
+                "ms": ev.get("duration_ms"),
+                "cost_usd": ev.get("total_cost_usd"),  # Pro では請求されない。量の目安（API の定価で数えたもの）
+            }
             final = (ev.get("result") or "").strip()
             res.answer = final or (res.spoken[-1] if res.spoken else "")
             if final and final not in res.spoken:

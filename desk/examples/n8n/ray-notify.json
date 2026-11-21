@@ -1,0 +1,40 @@
+{
+  "id": "rayNotifyMorning",
+  "name": "Ray に話させる（毎朝8時）",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "triggerAtHour": 8 }] }
+      },
+      "id": "a1f0c2d4-0001-4000-8000-000000000001",
+      "name": "毎朝8時",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8765/notify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "X-Ray-Token", "value": "ここに config.toml の [notify] token" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: '朝の知らせ', text: '@画面 steps {\"title\": \"今朝やること\", \"steps\": [\"水を飲む\", \"予定を見る\"]}\\nおはようございます。今朝やることは2つです。' }) }}",
+        "options": {}
+      },
+      "id": "a1f0c2d4-0002-4000-8000-000000000002",
+      "name": "Ray に送る",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0]
+    }
+  ],
+  "connections": {
+    "毎朝8時": { "main": [[{ "node": "Ray に送る", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

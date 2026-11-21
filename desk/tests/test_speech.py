@@ -211,3 +211,21 @@ class VoicevoxTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EchoTest(unittest.TestCase):
+    def test_add_echo_overlays_quieter_copies(self):
+        import array as _array
+        import tempfile as _tempfile
+        import wave as _wave
+        from pathlib import Path as _Path
+        with _tempfile.TemporaryDirectory() as d:
+            p = str(_Path(d) / "v.wav")
+            with _wave.open(p, "wb") as w:
+                w.setnchannels(1); w.setsampwidth(2); w.setframerate(1000)
+                w.writeframes(_array.array("h", [10000] + [0] * 99).tobytes())
+            self.assertTrue(speech.add_echo(p, delay_ms=10, decay=0.5, repeats=2))
+            with _wave.open(p, "rb") as w:
+                out = _array.array("h", w.readframes(w.getnframes()))
+            self.assertEqual(len(out), 120)  # 響きの分だけ長くなる
+            self.assertEqual((out[0], out[10], out[20]), (10000, 5000, 2500))

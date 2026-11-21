@@ -91,7 +91,13 @@ def check(cfg: dict) -> bool:
         line(importlib.util.find_spec(mod) is not None, label, "pip install -r requirements.txt")
     if cfg["wake"]["enabled"]:
         line(importlib.util.find_spec("openwakeword") is not None, "ウェイクワード（openwakeword）", "pip install openwakeword")
-        line(bool(cfg["wake"]["model"]) and Path(cfg["wake"]["model"]).exists(), "ウェイクワードのモデル", "wake.model を指定")
+        from .wake import is_builtin
+        m = cfg["wake"]["model"]
+        line(bool(m) and (is_builtin(m) or Path(m).exists()), f"ウェイクワードのモデル（{m or 'なし'}）",
+             "wake.model に hey_jarvis などの内蔵の呼び名か、学習した .onnx を指定")
+    if cfg["notify"]["enabled"]:
+        line(len(cfg["notify"]["token"]) >= 16, f"n8n からの知らせ（POST http://127.0.0.1:{cfg['ui']['port']}/notify）",
+             "[notify] token に16文字以上の合言葉を入れる（python3 -c 'import secrets; print(secrets.token_urlsafe(24))'）")
     return ok
 
 
@@ -237,11 +243,17 @@ def run(cfg: dict, use_ui: bool) -> None:
     assistant = Assistant(cfg, brain, speaker, hub, sfx=sfx)
     from . import stt
     threading.Thread(target=stt.warm, args=(cfg,), daemon=True).start()  # 聞き取りのモデルを先に読み込む
-    if use_ui and cfg["ui"]["enabled"]:
+    notify = cfg["notify"]["enabled"]
+    show = use_ui and cfg["ui"]["enabled"]
+    if show:
         from .usage import UsageWatcher
         if cfg["ui"].get("usage", True):
             UsageWatcher(hub, gemini=getattr(brain, "gemini", None), search=getattr(brain, "search", None)).start()
-        serve(hub, cfg["ui"]["port"])
+    if show or notify:
+        serve(hub, cfg["ui"]["port"], on_notify=assistant.notify if notify else None, notify_cfg=cfg["notify"])
+    if notify:
+        print(f"n8n からの知らせを受けます：POST http://127.0.0.1:{cfg['ui']['port']}/notify")
+    if show:
         url = f"http://localhost:{cfg['ui']['port']}/"
         print(f"状態の画面：{url}")
         if cfg["ui"]["open_browser"]:
@@ -294,11 +306,17 @@ def main(argv=None) -> int:
     p.add_argument("--check", action="store_true", help="準備ができているか確かめる")
     p.add_argument("--no-ui", action="store_true", help="状態の画面を出さない")
     p.add_argument("--quiet", action="store_true", help="--text のとき読み上げない")
+    p.add_argument("--prompt-report", action="store_true", help="送ったプロンプトの効率を、記録からまとめる")
+    p.add_argument("--days", type=int, default=7, help="--prompt-report で見る日数（既定7）")
     a = p.parse_args(argv)
     cfg = config_mod.load(a.config)
 
     if a.check:
         return 0 if check(cfg) else 1
+    if a.prompt_report:
+        from . import promptcheck
+        print(promptcheck.run(cfg, a.days))
+        return 0
     if a.text:
         class Silent:
             def say(self, t): pass
