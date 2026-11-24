@@ -54,6 +54,23 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(post({**JSON, "X-Ray-Token": "wrong"})[0], 401)
         self.assertEqual(got, [("届きました", "")])
 
+    def test_notify_only_hides_page(self):
+        """Mac の外に開く受け口は、知らせだけ受けて、画面や会話の流れは見せない"""
+        got = []
+        server = serve(StateHub(), 0, on_notify=lambda t, ti: got.append(t) or 1,
+                       notify_cfg={"token": TOKEN}, notify_only=True)
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        for path in ("/", "/events", "/?theme=neon"):
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                urllib.request.urlopen(base + path, timeout=5)
+            self.assertEqual(cm.exception.code, 404)
+        req = urllib.request.Request(base + "/notify", data=json.dumps({"text": "外から"}).encode(),
+                                     headers={**JSON, "X-Ray-Token": TOKEN}, method="POST")
+        with urllib.request.urlopen(req, timeout=5) as r:
+            self.assertEqual(r.status, 202)
+        self.assertEqual(got, ["外から"])
+
 
 class AnnounceTest(unittest.TestCase):
     def make(self):

@@ -100,6 +100,18 @@ def check(cfg: dict) -> bool:
     if cfg["notify"]["enabled"]:
         line(len(cfg["notify"]["token"]) >= 16, f"n8n からの知らせ（POST http://127.0.0.1:{cfg['ui']['port']}/notify）",
              "[notify] token に16文字以上の合言葉を入れる（python3 -c 'import secrets; print(secrets.token_urlsafe(24))'）")
+        listen = cfg["notify"].get("listen", "")
+        if listen:
+            import socket
+
+            try:
+                with socket.socket(socket.AF_INET6 if ":" in listen else socket.AF_INET) as s:
+                    s.bind((listen, 0))
+                can = True
+            except OSError:
+                can = False
+            line(can, f"外からの知らせ（POST http://{listen}:{cfg['ui']['port']}/notify）",
+                 "Tailscale を起動して、tailscale ip -4 の IP を [notify] listen に入れる")
     return ok
 
 
@@ -258,6 +270,14 @@ def run(cfg: dict, use_ui: bool) -> None:
         serve(hub, cfg["ui"]["port"], on_notify=assistant.notify if notify else None, notify_cfg=cfg["notify"])
     if notify:
         print(f"n8n からの知らせを受けます：POST http://127.0.0.1:{cfg['ui']['port']}/notify")
+        listen = cfg["notify"].get("listen", "")
+        if listen:
+            try:  # サーバーの n8n から Tailscale を通って届く知らせ
+                serve(hub, cfg["ui"]["port"], on_notify=assistant.notify, notify_cfg=cfg["notify"],
+                      host=listen, notify_only=True)
+                print(f"外からの知らせも受けます：POST http://{listen}:{cfg['ui']['port']}/notify")
+            except OSError as e:
+                print(f"⚠️  {listen} で知らせを受けられません（Tailscale はつながっていますか？）：{e}")
     if show:
         url = f"http://localhost:{cfg['ui']['port']}/"
         print(f"状態の画面：{url}")

@@ -99,6 +99,7 @@ pitch = 0.5                  # 音の高さ。1 で元の高さ、0.5 で1オク
 [notify]
 enabled = false
 token = ""
+# listen = "100.x.y.z"   # サーバーの n8n から Tailscale を通して受けるとき、Mac の Tailscale の IP（n8n-server/README.md）
 
 # コードの係（Codex CLI。brew install --cask codex して codex login）
 # コードの生成・修正・レビューは Claude より先に Codex へ。Claude が5時間の上限のときの受け皿にも

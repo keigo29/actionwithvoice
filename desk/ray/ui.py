@@ -73,7 +73,8 @@ def check_notify(headers, body: bytes, token: str, max_bytes: int = 65536) -> tu
 
 
 def serve(hub: StateHub, port: int, on_notify: Callable[[str, str], int] | None = None,
-          notify_cfg: dict | None = None) -> ThreadingHTTPServer:
+          notify_cfg: dict | None = None, host: str = "127.0.0.1", notify_only: bool = False) -> ThreadingHTTPServer:
+    """状態の画面と知らせの受け口。notify_only なら POST /notify だけ受ける（Mac の外に開くとき用）"""
     notify_cfg = notify_cfg or {}
 
     class Handler(BaseHTTPRequestHandler):
@@ -105,7 +106,9 @@ def serve(hub: StateHub, port: int, on_notify: Callable[[str, str], int] | None 
             self._json(202, {"ok": True, "queued": on_notify(d["text"], d["title"])})
 
         def do_GET(self):
-            if self.path.split("?", 1)[0] == "/":  # 「/?theme=blueprint」のように見た目を選べる
+            if notify_only:  # 画面には会話の中身が出るので、外からは見せない
+                self.send_error(404)
+            elif self.path.split("?", 1)[0] == "/":  # 「/?theme=blueprint」のように見た目を選べる
                 body = PAGE.read_bytes()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -159,7 +162,7 @@ def serve(hub: StateHub, port: int, on_notify: Callable[[str, str], int] | None 
             else:
                 self.send_error(404)
 
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    server = ThreadingHTTPServer((host, port), Handler)
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server

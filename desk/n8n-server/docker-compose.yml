@@ -1,0 +1,31 @@
+# サーバーで n8n を動かす（Oracle Cloud の無料枠など）
+#   n8n         … ワークフローを動かす本体。ポートは外に開けない
+#   cloudflared … Cloudflare Tunnel。https://<N8N_HOST> を n8n につなぐ
+# 中身の設定は .env（.env.example を写して書く）
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.13.4   # Mac で使っていたのと同じ版。上げるときはここを変える
+    restart: unless-stopped
+    environment:
+      N8N_HOST: ${N8N_HOST}
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://${N8N_HOST}/
+      N8N_PROXY_HOPS: 1                    # Cloudflare を1つ通ってくる
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      GENERIC_TIMEZONE: Asia/Tokyo         # 「毎朝8時」を日本時間で
+      TZ: Asia/Tokyo
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      EXECUTIONS_DATA_PRUNE: "true"        # 実行の記録は7日で消す（ディスクを食わないように）
+      EXECUTIONS_DATA_MAX_AGE: 168
+    volumes:
+      - ./data:/home/node/.n8n
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest   # 古い版は Cloudflare に断られるので、新しいものを使う
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on:
+      - n8n

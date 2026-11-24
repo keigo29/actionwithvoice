@@ -108,7 +108,8 @@ DEFAULTS: dict = {
     "log": {"enabled": True, "push": True, "dir": "Data/ray"},
     # n8n などから Ray に話させる受け口（POST http://127.0.0.1:{ui.port}/notify）。token が空なら受け付けない
     # wait_sec：会話の途中なら終わるまで待つ。これより長く待ったら捨てる
-    "notify": {"enabled": False, "token": "", "wait_sec": 600, "max_bytes": 65536},
+    # listen：Mac の外（Tailscale の IP など）からも受けるとき、その IP。受けるのは /notify だけ
+    "notify": {"enabled": False, "token": "", "wait_sec": 600, "max_bytes": 65536, "listen": ""},
     # 効果音（起動・画面を開く／閉じる・聞き取り開始・聞き取れた）。Mac の afplay で鳴らす
     "sfx": {"enabled": True, "volume": 0.5, "pitch": 0.5},
 }
