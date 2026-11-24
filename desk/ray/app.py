@@ -31,6 +31,11 @@ SMALL_RE = re.compile(r"^(小さく|ちいさく|戻して|元に戻して)" + _
 CLOSE_RE = re.compile(r"^(閉じて|画面を閉じて|画面を消して)" + _END)
 
 
+def asks_more(answer: str) -> bool:
+    """返事が「続きを話しましょうか？」で終わっているか"""
+    return bool(re.search(r"続き[をは].{0,6}[？?]\s*$", answer.strip()))
+
+
 class _NoSfx:
     def play(self, name: str, wait: float = 0.0) -> None:
         pass
@@ -62,6 +67,7 @@ class Assistant:
         self.shot = shots.capture
         self.notices: queue.Queue = queue.Queue()  # n8n などから来た知らせ。会話が終わってから話す
         self.notice_thread: threading.Thread | None = None
+        self.follow = None  # ボタンなしで聞く関数（should_stop を受けて、録った音を返す）。None なら使わない
 
     # --- 割り込み（キーを押した・呼ばれた） ---
     def interrupt(self) -> None:
@@ -271,7 +277,33 @@ class Assistant:
             extra["scene"] = {"kind": "confirm", "data": {"text": res.answer}, "index": 0, "total": 1}
             self._screen("confirm")
         self.hub.set(state="confirm" if self.awaiting_confirm else "idle", answer=res.answer, text="", **extra)
+        if not res.is_error and not self.cut.is_set() and (asks_more(res.answer) or budget.overflow):
+            self._follow_up()
         return res.answer
+
+    def _follow_up(self) -> None:
+        """「続きを話しましょうか？」のあと、ボタンなしで少しのあいだ聞く（話さなければ、そのまま待つ）"""
+        if self.follow is None:
+            return
+        gen = self.gen
+
+        def run() -> None:
+            while self.busy.is_set() and gen == self.gen:  # いまの答えの処理が終わるまで待つ
+                time.sleep(0.1)
+            if gen != self.gen or self.cut.is_set():
+                return
+            self.hub.set(state="listening", text="聞いています…")
+            try:
+                frames = self.follow(lambda: self.gen != gen or self.busy.is_set())
+            except Exception as e:
+                print(f"続きの聞き取りのエラー：{e}")
+                frames = b""
+            if frames and gen == self.gen:
+                self.submit_audio(frames)
+            elif gen == self.gen and self.hub.state.get("state") == "listening":
+                self.hub.set(state="idle", text="")
+
+        threading.Thread(target=run, daemon=True).start()
 
     # --- 画面を見せながら話す ---
     def _prepare(self, sc: scenes.Scene) -> None:

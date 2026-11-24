@@ -62,6 +62,28 @@ def duration(frames: bytes) -> float:
     return len(frames) / 2 / RATE
 
 
+def listen_once(wait_sec: float = 10, silence_sec: float = 1.2, max_sec: float = 15, should_stop=lambda: False,
+                threshold: float = 500) -> bytes:
+    """ボタンなしで聞く。wait_sec のあいだ話し始めなければ、空を返す。話したら、黙るまで録って返す"""
+    import array
+
+    import sounddevice as sd
+
+    frame = 1280
+    det = SilenceDetector(frame / RATE, threshold=threshold, silence_sec=silence_sec, max_sec=max_sec, wait_sec=wait_sec)
+    buf: list[bytes] = []
+    with sd.RawInputStream(samplerate=RATE, channels=1, dtype="int16", blocksize=frame) as stream:
+        while not should_stop():
+            data, _ = stream.read(frame)
+            data = bytes(data)
+            buf.append(data)
+            if det.feed(rms(array.array("h", data))):
+                break
+        else:
+            return b""
+    return b"".join(buf) if det.spoke else b""
+
+
 class Recorder:
     """start() から stop() までの音をためる（プッシュトゥトーク用）"""
 

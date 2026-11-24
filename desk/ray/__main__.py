@@ -243,6 +243,9 @@ def run(cfg: dict, use_ui: bool) -> None:
     sfx = Sfx(cfg)
     brain = make_brain(cfg)
     assistant = Assistant(cfg, brain, speaker, hub, sfx=sfx)
+    if cfg.get("follow_sec", 10) > 0:
+        from .audio import listen_once
+        assistant.follow = lambda stop: listen_once(wait_sec=cfg["follow_sec"], should_stop=stop)
     from . import stt
     threading.Thread(target=stt.warm, args=(cfg,), daemon=True).start()  # 聞き取りのモデルを先に読み込む
     notify = cfg["notify"]["enabled"]
