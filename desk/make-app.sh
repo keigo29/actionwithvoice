@@ -4,8 +4,8 @@
 #   ./make-app.sh            # ~/Applications/Ray.app を作る
 #   ./make-app.sh <置き場所>  # 置き場所を変える
 #
-# - ダブルクリックすると、ターミナルの新しい窓で python -m ray を動かす
-#   （マイク・入力監視の許可は、いままでどおりターミナルのものを使う）
+# - ダブルクリックすると、iTerm（なければターミナル）の新しい窓で python -m ray を動かす
+#   （マイク・入力監視の許可は、そのアプリのものを使う。RAY_TERMINAL=Terminal でターミナルにする）
 # - すでに動いていれば、もう1つは起動せず、状態の画面を開くだけ
 # - 止めるときは、その窓で Ctrl+C（窓を閉じても止まる）
 # - このフォルダを動かしたら、もう一度これを動かす
@@ -35,11 +35,25 @@ try
 	open location url_
 	return
 end try
-tell application "Terminal"
+set cmd to "cd " & quoted form of desk & " && clear && exec .venv/bin/python -m ray"
+EOF
+# 入力監視・マイクの許可が出ているアプリで動かす（iTerm があれば iTerm、なければターミナル）
+if [[ "${RAY_TERMINAL:-}" != "Terminal" && -d /Applications/iTerm.app ]]; then
+  cat >> "$WORK/ray.applescript" <<'EOF'
+tell application "iTerm"
 	activate
-	do script "cd " & quoted form of desk & " && clear && exec .venv/bin/python -m ray"
+	set w to (create window with default profile)
+	tell current session of w to write text cmd
 end tell
 EOF
+else
+  cat >> "$WORK/ray.applescript" <<'EOF'
+tell application "Terminal"
+	activate
+	do script cmd
+end tell
+EOF
+fi
 
 mkdir -p "${DEST:h}"
 rm -rf "$DEST"
