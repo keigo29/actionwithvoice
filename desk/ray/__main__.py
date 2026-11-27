@@ -284,6 +284,12 @@ def run(cfg: dict, use_ui: bool) -> None:
         if cfg["ui"]["open_browser"]:
             open_page(url, cfg["ui"].get("browser", ""))
 
+    if cfg["routine"]["enabled"]:
+        from .routine import Routine
+        assistant.routine = Routine(cfg, assistant)
+        assistant.routine.start()
+        print("朝のまとめ・予定の前の知らせ・夜のふりかえりで、Ray から声をかけます（「今日は静かに」で止まる）")
+
     if cfg["wake"]["enabled"]:
         from .wake import WakeListener
 

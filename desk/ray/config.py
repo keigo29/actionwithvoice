@@ -107,6 +107,11 @@ DEFAULTS: dict = {
     # 会話の記録。Data/voice/ にすると Cmd の Actions がデイリーに書き足すので、別の場所に置く
     # 決まった頼みごと（やることの追加・体の記録・予定の確認）を、Claude を呼ばずに Ray が片づける（actions.py）
     "actions": {"enabled": True, "push": True},
+    # Ray から声をかける（routine.py）。机にいないとき・会話の途中・「今日は静かに」のあとは話さない
+    "routine": {"enabled": True, "present_sec": 180, "sleep_question": True, "expect_sec": 180,
+                "morning": {"enabled": True, "from": "05:00", "until": "11:00"},
+                "remind": {"enabled": True, "lead_min": 10},
+                "evening": {"enabled": True, "at": "22:00", "until": "23:59"}},
     "log": {"enabled": True, "push": True, "dir": "Data/ray", "push_delay": 60},
     # n8n などから Ray に話させる受け口（POST http://127.0.0.1:{ui.port}/notify）。token が空なら受け付けない
     # wait_sec：会話の途中なら終わるまで待つ。これより長く待ったら捨てる
