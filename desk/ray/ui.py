@@ -20,6 +20,7 @@ from . import shots
 
 PAGE = Path(__file__).resolve().parent / "ui" / "index.html"
 FONTS = Path(__file__).resolve().parent / "ui" / "fonts"
+VENDOR = Path(__file__).resolve().parent / "ui" / "vendor"  # Workstation から写した図を描く部分（ray/wsdiagram.py）
 FONT_TYPES = {".otf": "font/otf", ".ttf": "font/ttf", ".woff": "font/woff", ".woff2": "font/woff2"}
 
 
@@ -145,6 +146,18 @@ def serve(hub: StateHub, port: int, on_notify: Callable[[str, str], int] | None 
                 self.send_header("Content-Type", kind)
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Cache-Control", "max-age=86400")
+                self.end_headers()
+                self.wfile.write(body)
+            elif self.path.startswith("/vendor/"):
+                name = self.path[len("/vendor/"):].split("?", 1)[0]
+                f = VENDOR / name
+                if "/" in name or ".." in name or not name.endswith(".js") or not f.exists():
+                    self.send_error(404)
+                    return
+                body = f.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/javascript; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
             elif self.path.startswith("/shot/"):

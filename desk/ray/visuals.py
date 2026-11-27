@@ -15,6 +15,8 @@ import subprocess
 import urllib.request
 from pathlib import Path
 
+from . import wsdiagram
+
 SKIP_DIRS = {".git", "Data", "Templates", "node_modules", ".obsidian", "scripts", ".github"}
 WEEK = "月火水木金土日"
 
@@ -497,7 +499,8 @@ ALIASES = {"予定": "calendar", "カレンダー": "calendar", "ノート": "no
            "習慣": "habits", "毎日確認": "habits", "体重": "body", "気分": "body", "家計": "kakei",
            "筋トレ": "workout", "天気": "weather", "変更": "diff", "ウェブ": "web", "出典": "sources",
            "表": "table", "比較": "table", "手順": "steps", "計算": "calc", "確認": "confirm",
-           "mermaid": "diagram", "マーメイド": "diagram", "図": "diagram", "フロー": "diagram"}
+           "mermaid": "diagram", "マーメイド": "diagram", "図": "diagram", "フロー": "diagram",
+           "図解": "diagram", "workstation": "diagram"}
 
 
 def build(kind: str, params: dict, cfg: dict) -> dict:
@@ -505,7 +508,9 @@ def build(kind: str, params: dict, cfg: dict) -> dict:
     root = Path(cfg["cmd_dir"]).expanduser()
     params = params if isinstance(params, dict) else {}
     try:
-        if kind in PASSTHROUGH:
+        if kind == "diagram":
+            data = wsdiagram.resolve(root, params)  # Cmd に置いた Workstation の図（file / name）も読む
+        elif kind in PASSTHROUGH:
             data = dict(params)
         elif kind == "weather":
             data = weather(cfg, params)

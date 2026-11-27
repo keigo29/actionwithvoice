@@ -333,7 +333,13 @@ def main(argv=None) -> int:
     p.add_argument("--quiet", action="store_true", help="--text のとき読み上げない")
     p.add_argument("--prompt-report", action="store_true", help="送ったプロンプトの効率を、記録からまとめる")
     p.add_argument("--days", type=int, default=7, help="--prompt-report で見る日数（既定7）")
+    p.add_argument("--sync-workstation", metavar="DIR", help="Workstation のチェックアウトから、図を描く部分を写し直す")
     a = p.parse_args(argv)
+    if a.sync_workstation:
+        from . import wsdiagram
+        for name in wsdiagram.sync(a.sync_workstation):
+            print(f"写しました：ray/ui/vendor/{name}")
+        return 0
     cfg = config_mod.load(a.config)
 
     if a.check:

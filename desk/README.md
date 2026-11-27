@@ -167,6 +167,7 @@ python -m ray --text 今日のデイリー読んで     # マイクなしで1回
 | web / sources | ページの写真と引用カード、使ったページの一覧 | WebSearch・WebFetch |
 | table / steps / calc | 比較の表、1つずつ進む手順、式と答え | Claude が考えた中身 |
 | diagram | 仕組み・流れ・関係の図（Mermaid：フローチャート・シーケンス図・マインドマップ・タイムライン・ガントなど）。話している所のノードを光らせる | Claude が書いた Mermaid。ライブラリは最初に使うときにネットから読む |
+| diagram（図解） | Workstation の図解と同じ形の図（四角・ひし形・データベース・アイコンの箱・枠・ER図のテーブル・クラスなど）。話している所の図形を光らせる | Claude が書いた図形と線、または Workstation で描いて Cmd に置いた図（下の「Workstation の図解を出す」） |
 | confirm | 「確認です。〜よいですか？」のときのカード | Ray の確認待ち |
 
 - 「おはよう」「朝のまとめ」で、天気 → 今日の予定 → 近い期限 → 習慣 を続けて見せます
@@ -179,6 +180,25 @@ python -m ray --text 今日のデイリー読んで     # マイクなしで1回
 - 天気の場所は `config.toml` の `[weather]`（`place`・`latitude`・`longitude`）で変えられます
 
 しくみ：Claude Code の返事の中の `@画面 種類 {JSON}` の行で場面を区切り、その下の文を読み上げます（指示の行は読み上げない）。グラフやカレンダーの中身は Ray が Cmd から集めるので、Claude が大きなデータを書く必要はありません。
+
+## Workstation の図解を出す
+
+Workstation の「図解」と同じ見た目の図を、Ray の画面に出せます。描く部分は Workstation の `src/renderer/diagram-draw.js` をそのまま写して使っています（`ray/ui/vendor/`。ネットからは読みません）。
+
+- **Claude が描く**：`@画面 diagram {"title": "…", "nodes": [...], "edges": [...], "highlight": ["図形の id"]}`。書き方は Workstation の図のファイル（`*.diagram.json`）と同じです（Workstation の `src/main/diagram-guide.md`）。`x`・`y` を省くと、線のつながりにそって自動で並びます。構成図やデータベース・ER図のように Mermaid では描きにくいものは、こちらを使います
+- **持ち主の図を出す**：「レイの構成の図を見せて」のように言うと、Workstation で描いて Cmd に置いた図（`*.diagram.json` と `*.mmd`。多くは `図解/日付/` の中）を名前で探して出します。`@画面 diagram {"name": "レイの構成", "highlight": ["route"]}`（場所で指すなら `"file": "図解/2026-11-27/レイの構成.diagram.json"`）
+  - 名前は「同じ」→「含む」の順に探し、同じなら新しいものを使います。Cmd の外と、`.` で始まるフォルダは見ません
+  - 貼った画像（`名前.assets/`）も出します（合わせて 4MB まで）
+- 色：neon（暗い画面）では Workstation の色を暗い画面に合う色に置きかえ、blueprint（明るい画面）では Workstation の色のままです
+- Mermaid の図（`code`）は、これまでどおり使えます
+
+Workstation 側で図の描き方が変わったら、写し直します（Workstation をクローンした場所を渡す）：
+
+```sh
+python -m ray --sync-workstation ~/WORKSTATION
+```
+
+`diagram-draw.js` はそのまま、アイコン（Lucide）は図で使うものだけを `diagram-icons.js` に写します。
 
 ## 効果音
 

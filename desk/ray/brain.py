@@ -57,6 +57,9 @@ SCREEN_PROMPT = """持ち主の前には画面があります。返事には毎�
 - steps {"title":"…","steps":["…"],"current":0} 手順（current は今話している番号、0 から）
 - calc {"expr":"式","steps":["途中の式"],"result":"答え"} 計算
 - diagram {"title":"…","code":"Mermaid の記法（改行は \\n）","highlight":["ノードの id"]} 仕組み・流れ・関係・順番・つながりを説明するとき。flowchart / sequenceDiagram / mindmap / timeline / gantt など。ノードは短い日本語で。場面ごとに同じ図で highlight を変えると、話している所を光らせられる
+- diagram {"title":"…","nodes":[{"id":"a","t":"rect","text":"短い言葉","c":"blue"}],"edges":[{"a":"a","b":"b","text":"…"}],"highlight":["図形の id"]} Workstation の図解の形（図形と線）。構成図・アイコンの箱（"t":"icon","ic":"server" など）・データベース・枠（グループ）・ER図・クラス図を見せたいときは、Mermaid よりこちら。x・y は省けば自動で並ぶ（線のつながりにそって上から下へ）
+  形 t：rect round ellipse diamond hexagon parallelogram terminal document cylinder（データベース） note（付箋） frame（枠。text は見出し。x・y・w・h を書くときだけ） icon（ic：user users globe smartphone monitor server container zap webhook database hard-drive mail cloud shield lock cpu router boxes） entity（ER図のテーブル。text は "users\\nPK id int\\nname text"） class。色 c：white gray blue green yellow orange red purple。線は "e":"arrow|open|triangle|none"・"dash":true・"r":"elbow|straight|curve"
+- diagram {"name":"図の名前","highlight":["図形の id"]} 持ち主が Workstation で描いて Cmd に置いた図（*.diagram.json / *.mmd。多くは 図解/日付/ の中）をそのまま見せる。"file":"図解/YYYY-MM-DD/○○.diagram.json" でもよい。光らせる id は、そのファイルを読んで選ぶ
 「おはよう」「朝のまとめ」と言われたら、weather → calendar(day) → todos(due_within 3) の3場面にする。習慣（habits）は聞かれたときだけ出す。
 """
 
