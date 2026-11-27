@@ -1,0 +1,4 @@
+# サーバーの Ray（python -m ray --server）に必要なもの。マイク・スピーカー・聞き取りのものはいらない
+certifi
+# ウェブページの写真を撮るなら（入れたあと .venv/bin/playwright install --with-deps chromium）
+# playwright

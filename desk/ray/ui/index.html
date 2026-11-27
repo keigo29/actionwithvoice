@@ -333,6 +333,28 @@
   #annot svg, #annot .read { transition: opacity .6s ease; }
   @media (max-width: 860px) { [data-theme="blueprint"] #annot { display: none; } }
   @media (prefers-reduced-motion: reduce) { .hud *, #stage { animation: none !important; } #stage, header.bar .say, header.bar .meta { transition: none; } }
+  /* ================= iPhone から使う画面（サーバーの Ray。window.RAY_REMOTE） ================= */
+  #remote { display: none; }
+  body.remote #remote { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; gap: 10px; align-items: center;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--bg) 88%, transparent);
+    border-top: 1px solid var(--line); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  body.remote #remote input { flex: 1; min-width: 0; font: 16px var(--font); color: var(--fg); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 999px; padding: 11px 16px; }
+  body.remote #remote button { flex: none; width: 52px; height: 52px; border-radius: 50%; border: 0; display: grid; place-items: center;
+    background: var(--panel2); color: var(--fg); }
+  body.remote #remote button.mic { width: 60px; height: 60px; background: var(--neon); color: #000; }
+  [data-theme="blueprint"] body.remote #remote button.mic { color: #fff; }
+  body.remote #remote button.mic.on { background: var(--confirm); animation: shine 1s ease-in-out infinite alternate; }
+  body.remote #remote button svg { width: 24px; height: 24px; }
+  body.remote #home, body.remote #stage { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  body.remote #usage { display: none; }
+  body.remote .diagram svg { max-height: calc(100dvh - 330px - env(safe-area-inset-bottom)); }  /* 下のボタンの列に隠れないように */
+  @media (max-width: 600px) {
+    body.remote .hud { --size: min(58vw, 42vh); }
+    body.remote header.bar .hud { --size: 44px; }
+    body.remote #stage { padding-left: 12px; padding-right: 12px; }
+    body.remote h2.ttl { font-size: 1.15em; }
+  }
 </style>
 </head>
 <body>
@@ -352,6 +374,11 @@
   </div>
 <div id="usage"></div>
 <div id="annot"></div>
+<form id="remote" autocomplete="off">
+  <button type="button" class="mic" id="mic" title="話す"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg></button>
+  <input id="ask" enterkeyhint="send" placeholder="話すか、ここに書く">
+  <button type="button" id="stopbtn" title="止める"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
+</form>
 <script>
 const LABELS = { idle: "待機中", listening: "聞いています", thinking: "考えています", speaking: "話しています", confirm: "確認待ち（はい／いいえ）" };
 const $ = (id) => document.getElementById(id);
@@ -668,7 +695,7 @@ function dots(n, rMin, rMax, seed) {
 // 決め方：URL の ?theme= ＞ Ray の設定（[ui] theme。状態と一緒に届く）＞ neon。T キーで切り替えて見比べられる
 const THEMES = ["neon", "blueprint"];
 const urlTheme = new URLSearchParams(location.search).get("theme");
-let theme = THEMES.includes(urlTheme) ? urlTheme : "neon";
+let theme = THEMES.includes(urlTheme) ? urlTheme : "blueprint";
 document.documentElement.dataset.theme = theme;
 function setTheme(t) {
   if (!THEMES.includes(t) || t === theme) return;
@@ -679,6 +706,7 @@ function setTheme(t) {
   layoutAnnot();
 }
 document.addEventListener("keydown", (e) => {
+  if (e.target.closest && e.target.closest("input, textarea")) return;  // 文字を書いているときは、見た目を変えない
   if ((e.key === "t" || e.key === "T") && !e.metaKey && !e.ctrlKey) setTheme(THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]);
 });
 
@@ -1012,10 +1040,87 @@ function apply(s) {
   } else lastScene = "";
 }
 window.__apply = apply;
+/* ---------- iPhone から使う（サーバーの Ray）----------
+   サーバーは、読み上げる文とその文の場面（utter）を先に送ってくる。ここで順番に読み上げ、
+   その文を話し始めるときに、その場面を出す（机の Ray が声に合わせて画面を切り替えるのと同じ）。
+   聞き取りも読み上げも iPhone がする（Safari の音声認識と読み上げ） */
+const REMOTE = !!window.RAY_REMOTE;
+let latest = null, lastUtter = null, lastCut = 0, nowUtter = null;
+const utterQ = [];
+function show() {
+  if (!latest) return;
+  apply(nowUtter ? { ...latest, state: "speaking", text: nowUtter.text, scene: nowUtter.scene } : latest);
+}
+function onState(s) {
+  latest = s;
+  if (lastUtter === null) { lastUtter = s.utter ? s.utter.id : 0; lastCut = s.cut || 0; }  // つないだときの古い文は話さない
+  if ((s.cut || 0) > lastCut) { lastCut = s.cut; utterQ.length = 0; stopVoice(); }
+  if (s.utter && s.utter.id > lastUtter) { lastUtter = s.utter.id; utterQ.push(s.utter); pump(); }
+  show();
+}
+let jaVoice = null;
+function pickVoice() {
+  const vs = (window.speechSynthesis && speechSynthesis.getVoices()) || [];
+  jaVoice = vs.find((v) => /ja/i.test(v.lang) && /Kyoko|O-Ren|Hattori/i.test(v.name)) || vs.find((v) => /ja/i.test(v.lang)) || null;
+}
+if (window.speechSynthesis) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+function pump() {
+  if (nowUtter || !utterQ.length) return;
+  nowUtter = utterQ.shift();
+  show();
+  const done = () => { nowUtter = null; show(); pump(); };
+  if (!window.speechSynthesis) { setTimeout(done, 400 + nowUtter.text.length * 120); return; }
+  const u = new SpeechSynthesisUtterance(nowUtter.text);
+  u.lang = "ja-JP"; if (jaVoice) u.voice = jaVoice; u.rate = 1.1;
+  u.onend = done; u.onerror = done;
+  speechSynthesis.speak(u);
+}
+function stopVoice() { nowUtter = null; if (window.speechSynthesis) speechSynthesis.cancel(); show(); }
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json", "X-Ray": "1" }, body: JSON.stringify(body || {}) });
+  if (r.status === 401) location.href = "/login";
+  return r.ok;
+}
+function send(text) {
+  text = String(text || "").trim();
+  if (!text) return;
+  utterQ.length = 0; stopVoice();
+  $("ask").value = "";
+  post("/api/ask", { text });
+}
+function setupRemote() {
+  document.body.classList.add("remote");
+  const unlock = () => { if (window.speechSynthesis) speechSynthesis.speak(new SpeechSynthesisUtterance("")); };  // iPhone は、押したときに1回鳴らさないと話せない
+  $("remote").addEventListener("submit", (e) => { e.preventDefault(); unlock(); send($("ask").value); });
+  $("stopbtn").addEventListener("click", () => { utterQ.length = 0; stopVoice(); post("/api/stop"); });
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let rec = null;
+  $("mic").addEventListener("click", () => {
+    unlock();
+    if (rec) { rec.stop(); return; }
+    if (!SR) { $("ask").focus(); $("ask").placeholder = "音声入力が使えないので、キーボードのマイクで話してください"; return; }
+    utterQ.length = 0; stopVoice();
+    if (latest && latest.state !== "idle" && latest.state !== "confirm") post("/api/stop");
+    rec = new SR(); rec.lang = "ja-JP"; rec.interimResults = true; rec.continuous = false;
+    let final = "";
+    rec.onresult = (e) => {
+      let interim = "";
+      for (const r of e.results) (r.isFinal ? (final = r[0].transcript) : (interim += r[0].transcript));
+      $("ask").value = final || interim;
+    };
+    rec.onend = () => { rec = null; $("mic").classList.remove("on"); send(final || $("ask").value); };
+    rec.onerror = () => { rec = null; $("mic").classList.remove("on"); };
+    $("mic").classList.add("on");
+    rec.start();
+  });
+}
+if (REMOTE) setupRemote();
+
 function connect() {
   if (!window.EventSource || location.protocol === "file:") return;
   const es = new EventSource("/events");
-  es.onmessage = (e) => apply(JSON.parse(e.data));
+  es.onmessage = (e) => (REMOTE ? onState : apply)(JSON.parse(e.data));
   es.onerror = () => { $("label").textContent = "つながっていません（Rayが止まっています）"; $("orb").dataset.state = "idle"; };
 }
 connect();

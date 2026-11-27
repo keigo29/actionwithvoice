@@ -101,12 +101,19 @@ DEFAULTS: dict = {
     # usage：Claude（Pro の枠）と Gemini（無料枠）の残りを画面の隅に出す
     # theme：画面の見た目。neon（暗い背景・オレンジの光）／blueprint（明るい設計図風）
     # browser：起動時に画面を開くブラウザ（Mac のアプリ名。"Safari"・"Google Chrome" など）。"" ならふだん使うブラウザ
-    "ui": {"enabled": True, "port": 8765, "open_browser": True, "usage": True, "theme": "neon", "browser": "Safari"},
+    "ui": {"enabled": True, "port": 8765, "open_browser": True, "usage": True, "theme": "blueprint", "browser": "Safari"},
     # 天気の場所（open-meteo）
     "weather": {"place": "横浜", "latitude": 35.44, "longitude": 139.64},
     # 会話の記録。Data/voice/ にすると Cmd の Actions がデイリーに書き足すので、別の場所に置く
     # 決まった頼みごと（やることの追加・体の記録・予定の確認）を、Claude を呼ばずに Ray が片づける（actions.py）
     "actions": {"enabled": True, "push": True},
+    # サーバーの Ray（python -m ray --server。iPhone から使う）。listen は 127.0.0.1 のまま tailscale serve で開く
+    "server": {"listen": "127.0.0.1", "port": 8765, "token": ""},
+    # Ray から声をかける（routine.py）。机にいないとき・会話の途中・「今日は静かに」のあとは話さない
+    "routine": {"enabled": True, "present_sec": 180, "sleep_question": True, "expect_sec": 180,
+                "morning": {"enabled": True, "from": "05:00", "until": "11:00"},
+                "remind": {"enabled": True, "lead_min": 10},
+                "evening": {"enabled": True, "at": "22:00", "until": "23:59"}},
     "log": {"enabled": True, "push": True, "dir": "Data/ray", "push_delay": 60},
     # n8n などから Ray に話させる受け口（POST http://127.0.0.1:{ui.port}/notify）。token が空なら受け付けない
     # wait_sec：会話の途中なら終わるまで待つ。これより長く待ったら捨てる

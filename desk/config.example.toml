@@ -77,7 +77,7 @@ max_sec = 15
 enabled = true
 port = 8765
 open_browser = true
-theme = "neon"               # 画面の見た目。neon（暗い背景・オレンジの光）／blueprint（明るい設計図風）。画面で T キーでも切り替えられる
+theme = "blueprint"          # 画面の見た目。blueprint（明るい設計図風・既定）／neon（暗い背景・オレンジの光）。画面で T キーでも切り替えられる
 browser = "Safari"           # 画面を開くブラウザ（"Safari"・"Google Chrome" など）。"" ならふだん使うブラウザ
 
 [weather]
@@ -88,6 +88,26 @@ longitude = 139.64
 [actions]
 enabled = true               # やることの追加・体の記録・予定の確認は、Claude を呼ばずに Ray が自分で書く・読む（トークンを使わない）。「取り消して」で戻せる
 push = true                  # 書いたファイルをコミットして push する（push は [log] と一緒にまとめて）
+
+[routine]
+# Ray から声をかける。机にいないとき（Mac を present_sec 秒さわっていない）・会話の途中は話さない。「今日は静かに」でその日は止まる
+enabled = true
+present_sec = 180
+sleep_question = true        # 朝のまとめのあと、睡眠が未記録なら「何時に寝て、何時に起きましたか？」と聞いて記録する
+
+[routine.morning]
+enabled = true               # この時間帯に、はじめて机にいると分かったら、天気・今日の予定・期限の近いやることを話す
+from = "05:00"
+until = "11:00"
+
+[routine.remind]
+enabled = true
+lead_min = 10                # 予定の何分前に知らせるか
+
+[routine.evening]
+enabled = true               # この時刻から、今日の気分を聞いて記録する（もう書いてあれば聞かない）
+at = "22:00"
+until = "23:59"
 
 [log]
 enabled = true               # Cmd の Data/ray/ に Q&A を置く（デイリーには入らない）

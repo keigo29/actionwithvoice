@@ -10,7 +10,7 @@ from pathlib import Path
 
 import re
 
-from . import actions, canned, cmdlog, guard, scenes, shots, speech, stt, visuals
+from . import actions, canned, cmdlog, guard, routine, scenes, shots, speech, stt, visuals
 from .audio import MIN_SEC, duration, save_wav
 from .brain import RESET_RE, Result, classify_reply, is_confirm
 
@@ -70,6 +70,9 @@ class Assistant:
         self.notice_thread: threading.Thread | None = None
         self.follow = None  # ボタンなしで聞く関数（should_stop を受けて、録った音を返す）。None なら使わない
         self.actions = actions.Actions(cfg)  # 決まった頼みごとを、Claude を呼ばずに片づける
+        self.routine = None                  # Ray から声をかける係（routine.Routine）。「今日は静かに」に使う
+        self.expect: tuple[str, float] | None = None  # Ray から聞いたことへの答えを待っている（mood / sleep, 締め切り）
+        self.announce_lock = threading.Lock()  # 知らせと声かけが重ならないように
         cmdlog.SYNC.busy = lambda: self.busy.is_set() or self.hub.state.get("state") not in ("idle", "confirm")
 
     # --- 割り込み（キーを押した・呼ばれた） ---
@@ -119,15 +122,23 @@ class Assistant:
             except Exception as e:  # 知らせ1件の失敗で、受け口ごと止めない
                 print(f"知らせのエラー：{e}")
 
-    def announce(self, text: str, title: str = "") -> None:
-        """知らせを話す。「@画面」の行があれば画面も出す。Claude も Gemini も呼ばない"""
+    def announce(self, text: str, title: str = "", source: str = "n8n") -> None:
+        """知らせを話す。「@画面」の行があれば画面も出す。Claude も Gemini も呼ばない
+        source：n8n（外からの知らせ）／ray（Ray からの声かけ。決まった文の数で止めない）"""
+        with self.announce_lock:
+            self._announce(text, title, source)
+
+    def _announce(self, text: str, title: str, source: str) -> None:
+        busy = self.busy.is_set()  # 話しかけられた流れの中（「おはよう」など）なら、busy は呼んだ側が戻す
         self.busy.set()
         try:
             self.cut.clear()
-            label = f"n8n：{title}" if title else "n8n から"
+            who = "n8n" if source == "n8n" else "Ray"
+            label = f"{who}：{title}" if title else f"{who} から"
             print(f"📨 {label}")
             self.sfx.play("ack")
-            budget = guard.Budget()
+            long = source != "n8n" and self.cfg.get("auto_continue", True)
+            budget = guard.Budget(limit=10**6) if long else guard.Budget()
             self.hub.set(state="speaking", question=label, text="", **({} if self.awaiting_confirm else {"scene": None}))
             if scenes.has_directive(text):
                 parsed = scenes.parse(text)
@@ -149,7 +160,7 @@ class Assistant:
                     self.rest = budget.rest
                     self.speaker.say(MORE_TEXT)
             answer = scenes.strip_directives(text) or text
-            self.log(self.cfg, label, answer, extra={"brain": "n8n"})
+            self.log(self.cfg, label, answer, extra={"brain": source})
             self.speaker.wait(timeout=120)
             if self.cut.is_set():
                 return  # 途中で話しかけられた：状態はそちらに任せる
@@ -158,7 +169,39 @@ class Assistant:
                 extra["scene"] = {"kind": "confirm", "data": {"text": self.hub.state.get("answer", "")}, "index": 0, "total": 1}
             self.hub.set(state="confirm" if self.awaiting_confirm else "idle", answer=answer, text="", **extra)
         finally:
-            self.busy.clear()
+            if not busy:
+                self.busy.clear()
+
+    # --- Ray から声をかける（routine.py） ---
+    def morning_brief(self, now=None) -> str:
+        """朝のまとめ（天気・今日の予定・期限の近いやること）。コードだけで作る。睡眠が未記録なら続けて聞く"""
+        text, ask = routine.brief(self.cfg, self.actions, now or self.actions.now())
+        self.announce(text, title="朝のまとめ", source="ray")
+        if ask and not self.cut.is_set():
+            self._expect(ask)
+        return scenes.strip_directives(text)
+
+    def ask_back(self, text: str, kind: str, title: str = "") -> None:
+        """Ray から聞いて、答えを待つ（ボタンなしで少し聞く。キーを押して答えてもよい）"""
+        self.announce(text, title=title, source="ray")
+        if not self.cut.is_set():
+            self._expect(kind)
+
+    def _expect(self, kind: str) -> None:
+        self.expect = (kind, self.clock() + float(self.cfg.get("routine", {}).get("expect_sec", 180)))
+        self._follow_up()
+
+    def _answer_expected(self, question: str) -> str | None:
+        """聞いたことへの答えなら、記録の頼みに直す。答えになっていなければ None（ふつうの質問として扱う）"""
+        kind, until = self.expect
+        self.expect = None
+        if self.clock() > until:
+            return None
+        if kind == "mood":
+            return routine.mood_phrase(question)
+        if kind == "sleep":
+            return routine.sleep_phrase(question, self.cfg["cmd_dir"], self.actions.now())
+        return None
 
     # --- 中身 ---
     def handle_audio(self, frames: bytes, gen: int | None = None) -> None:
@@ -202,6 +245,19 @@ class Assistant:
             self._screen(None)
             self.hub.set(scene=None)
             return self._local(question, "新しい話にしますね")
+        if self.expect and not self.awaiting_confirm:
+            phrase = self._answer_expected(question)
+            if phrase:
+                print(f"（聞いたことへの答えとして記録します：{phrase}）")
+                question = phrase  # 下の「決まった頼みごと」で記録する（書けなければ Claude へ）
+        if not self.awaiting_confirm and self.routine and routine.QUIET_RE.match(question):
+            self.routine.state.set_quiet(self.actions.now().date().isoformat(), True)
+            return self._local(question, "わかりました。今日はもう、こちらからは声をかけません")
+        if not self.awaiting_confirm and self.routine and routine.LOUD_RE.match(question):
+            self.routine.state.set_quiet(self.actions.now().date().isoformat(), False)
+            return self._local(question, "わかりました。また声をかけますね")
+        if not self.awaiting_confirm and routine.MORNING_RE.match(question):
+            return self.morning_brief()  # Claude を呼ばずに、コードでまとめる
         if not self.awaiting_confirm and self._navigate(question):
             return "（画面の操作）"
         if not self.awaiting_confirm and canned.is_save(question):
