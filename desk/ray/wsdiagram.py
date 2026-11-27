@@ -2,6 +2,7 @@
 
 - 描く部分：Workstation の src/renderer/diagram-draw.js（画面なしでも動く）を、そのまま ray/ui/vendor/ に写して使う。
   図のアイコン（Lucide）は src/renderer/icons.js から、図で使うものだけを ray/ui/vendor/diagram-icons.js に抜き出す。
+  Mermaid（src/renderer/vendor/mermaid.min.js）も写す（図のライブラリをネットから読まずに済む）。
   写し直すとき：python -m ray --sync-workstation ~/WORKSTATION
 - 図の中身：Workstation の図のファイル（名前.diagram.json ＝マウスで描く図 ／ 名前.mmd ＝ Mermaid）を、
   Cmd の中から名前か場所で探して読む（Workstation は新しい図を Cmd の 図解/日付/ に置く）。
@@ -13,12 +14,15 @@ import base64
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
 VENDOR = Path(__file__).resolve().parent / "ui" / "vendor"
 DRAW_SRC = Path("src/renderer/diagram-draw.js")
 ICONS_SRC = Path("src/renderer/icons.js")
+# Mermaid も Workstation が同梱しているものを使う（Workstation の .mmd と同じ見た目になり、ネットから読まずに済む）
+COPY = {Path("src/renderer/vendor/mermaid.min.js"): "mermaid.min.js", Path("src/renderer/vendor/LICENSE-mermaid"): "LICENSE-mermaid"}
 
 # 図の「アイコンつきの箱」で選べる名前（Workstation の docs と同じ）と、画像の代わりに出すもの
 ICON_NAMES = ["user", "users", "globe", "smartphone", "monitor", "network", "server", "container", "zap", "webhook",
@@ -55,7 +59,12 @@ def sync(ws_dir: str | Path, out: Path = VENDOR) -> list[str]:
     (out / "diagram-icons.js").write_text(
         f"// Lucide アイコン（https://lucide.dev ／ ISC License）。Workstation（{rev}）の icons.js から、図で使うものだけ\n"
         f"window.ICONS = Object.assign(window.ICONS || {{}}, {json.dumps(picked, ensure_ascii=False)});\n", encoding="utf-8")
-    return ["diagram-draw.js", "diagram-icons.js"]
+    copied = []
+    for src, name in COPY.items():
+        if (ws / src).exists():
+            shutil.copyfile(ws / src, out / name)
+            copied.append(name)
+    return ["diagram-draw.js", "diagram-icons.js", *copied]
 
 
 def _rev(ws: Path) -> str:

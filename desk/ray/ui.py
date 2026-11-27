@@ -158,6 +158,7 @@ def serve(hub: StateHub, port: int, on_notify: Callable[[str, str], int] | None 
                 self.send_response(200)
                 self.send_header("Content-Type", "text/javascript; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "max-age=86400")  # Mermaid は大きいので、毎回は送らない
                 self.end_headers()
                 self.wfile.write(body)
             elif self.path.startswith("/shot/"):

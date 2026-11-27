@@ -494,16 +494,17 @@ R.calc = (d) => `<h2 class="ttl">${esc(d.title || "計算")}</h2><div class="car
 R.confirm = (d) => `<div class="card confirm"><div class="muted">確認</div><h2 class="ttl" style="margin-top:10px">${esc(d.action || d.text)}</h2>
   <div class="yn"><span>はい</span><span>いいえ</span></div></div>`;
 
-/* 図（Mermaid）。ライブラリは最初に使うときだけ読む */
-const MERMAID_URL = "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js";
+/* 図（Mermaid）。ライブラリは最初に使うときだけ読む。Workstation から写した手元のもの（ray/ui/vendor/）を使い、無ければネットから */
+const MERMAID_URLS = ["/vendor/mermaid.min.js", "https://cdn.jsdelivr.net/npm/mermaid@11.12.0/dist/mermaid.min.js"];
 let mermaidReady = null;
 function loadMermaid() {
-  if (!mermaidReady) mermaidReady = new Promise((ok, ng) => {
+  const one = (src) => new Promise((ok, ng) => {
     const sc = document.createElement("script");
-    sc.src = MERMAID_URL; sc.onload = () => ok(window.mermaid);
-    sc.onerror = () => { mermaidReady = null; ng(new Error("図のライブラリを読めませんでした")); };
+    sc.src = src; sc.onload = () => (window.mermaid ? ok(window.mermaid) : ng(new Error("mermaid がありません")));
+    sc.onerror = () => { sc.remove(); ng(new Error("図のライブラリを読めませんでした")); };
     document.head.appendChild(sc);
   });
+  if (!mermaidReady) mermaidReady = one(MERMAID_URLS[0]).catch(() => one(MERMAID_URLS[1])).catch((e) => { mermaidReady = null; throw e; });
   return mermaidReady;
 }
 /* 見た目ごとの図の色（Mermaid は color-mix や CSS の変数を読めないので、色をそのまま書く） */
@@ -618,7 +619,9 @@ R.diagram = (d) => {
       }
       let hit = 0;
       for (const h of d.highlight || []) {
-        box.querySelectorAll(`g.node[id^="flowchart-${CSS.escape(h)}-"], g[id="${CSS.escape(h)}"], g.node[data-id="${CSS.escape(h)}"]`)
+        // Mermaid 10 は id="flowchart-A-0"、11 は頭に図の id がつく（id="dg2svg-flowchart-A-0"）
+        const e = CSS.escape(h);
+        box.querySelectorAll(`g.node[id^="flowchart-${e}-"], g.node[id*="-flowchart-${e}-"], g[id="${e}"], g.node[data-id="${e}"]`)
           .forEach((g) => { g.classList.add("hl-node"); hit++; });
       }
       box.classList.toggle("has-hl", hit > 0);
