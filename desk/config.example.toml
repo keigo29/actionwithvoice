@@ -85,9 +85,14 @@ place = "横浜"               # 画面に出す天気の場所
 latitude = 35.44
 longitude = 139.64
 
+[actions]
+enabled = true               # やることの追加・体の記録・予定の確認は、Claude を呼ばずに Ray が自分で書く・読む（トークンを使わない）。「取り消して」で戻せる
+push = true                  # 書いたファイルをコミットして push する（push は [log] と一緒にまとめて）
+
 [log]
 enabled = true               # Cmd の Data/ray/ に Q&A を置く（デイリーには入らない）
 push = true                  # 置いたら push する
+push_delay = 60              # push はまとめて、最後に書いてから この秒数あとに1回（会話の途中なら終わるまで待つ）。0 ですぐ
 
 [sfx]
 enabled = true               # 起動・画面を開く／閉じる・聞き取り開始・聞き取れたときの効果音

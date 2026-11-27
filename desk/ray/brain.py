@@ -57,6 +57,9 @@ SCREEN_PROMPT = """持ち主の前には画面があります。返事には毎�
 - steps {"title":"…","steps":["…"],"current":0} 手順（current は今話している番号、0 から）
 - calc {"expr":"式","steps":["途中の式"],"result":"答え"} 計算
 - diagram {"title":"…","code":"Mermaid の記法（改行は \\n）","highlight":["ノードの id"]} 仕組み・流れ・関係・順番・つながりを説明するとき。flowchart / sequenceDiagram / mindmap / timeline / gantt など。ノードは短い日本語で。場面ごとに同じ図で highlight を変えると、話している所を光らせられる
+- diagram {"title":"…","nodes":[{"id":"a","t":"rect","text":"短い言葉","c":"blue"}],"edges":[{"a":"a","b":"b","text":"…"}],"highlight":["図形の id"]} Workstation の図解の形（図形と線）。構成図・アイコンの箱（"t":"icon","ic":"server" など）・データベース・枠（グループ）・ER図・クラス図を見せたいときは、Mermaid よりこちら。x・y は省けば自動で並ぶ（線のつながりにそって上から下へ）
+  形 t：rect round ellipse diamond hexagon parallelogram terminal document cylinder（データベース） note（付箋） frame（枠。text は見出し。x・y・w・h を書くときだけ） icon（ic：user users globe smartphone monitor server container zap webhook database hard-drive mail cloud shield lock cpu router boxes） entity（ER図のテーブル。text は "users\\nPK id int\\nname text"） class。色 c：white gray blue green yellow orange red purple。線は "e":"arrow|open|triangle|none"・"dash":true・"r":"elbow|straight|curve"
+- diagram {"name":"図の名前","highlight":["図形の id"]} 持ち主が Workstation で描いて Cmd に置いた図（*.diagram.json / *.mmd。多くは 図解/日付/ の中）をそのまま見せる。"file":"図解/YYYY-MM-DD/○○.diagram.json" でもよい。光らせる id は、そのファイルを読んで選ぶ
 「おはよう」「朝のまとめ」と言われたら、weather → calendar(day) → todos(due_within 3) の3場面にする。習慣（habits）は聞かれたときだけ出す。
 """
 
@@ -148,6 +151,7 @@ def build_command(cfg: dict, session_id: str | None = None, confirmed: bool = Fa
     cmd = [
         c["bin"], "-p",
         "--output-format", "stream-json", "--verbose",
+        "--include-partial-messages",  # 文字を少しずつ受け取り、1文できたら話し始める（全部書き終わるのを待たない）
         "--append-system-prompt", prompt,
         "--permission-mode", "acceptEdits",
         "--allowedTools", *(SAFE_TOOLS + (CONFIRMED_TOOLS if confirmed else [])),
@@ -188,10 +192,71 @@ class Result:
     usage: dict | None = None    # 実際に使った量（トークン・時間・往復の回数）。プロンプトの効率を確かめる用（promptcheck.py）
 
 
+_SENT_END = re.compile(r"[。？！?!\n]")
+
+
+class Sentences:
+    """流れてくる文字を文に区切って渡す（1文できたら、すぐ読み上げに回すため）
+
+    行の頭が「@」の行（@画面 の指示）は、JSON の中の「。」で切らないよう、行の終わりまで待つ。
+    指示の行は、次の文と一緒に渡す（場面に、話す文がつくように）。
+    """
+
+    def __init__(self, on_text: Callable[[str], None]):
+        self.on_text = on_text
+        self.buf = ""
+        self.scene: str | None = None
+
+    def feed(self, piece: str) -> None:
+        self.buf += piece
+        while True:
+            lead = self.buf.lstrip()
+            if lead[:1] in ("@", "＠"):
+                if "\n" not in lead:
+                    return
+                line, self.buf = lead.split("\n", 1)
+                self._flush_scene()
+                self.scene = line.strip()
+                continue
+            m = _SENT_END.search(self.buf)
+            if not m:
+                return
+            sentence, self.buf = self.buf[:m.end()], self.buf[m.end():]
+            self._emit(sentence)
+
+    def finish(self) -> None:
+        lead = self.buf.lstrip()
+        self.buf = ""
+        if lead[:1] in ("@", "＠"):
+            self._flush_scene()
+            self.scene, lead = lead.strip(), ""
+        self._emit(lead)
+        self._flush_scene()
+
+    def _flush_scene(self) -> None:
+        if self.scene:
+            self.on_text(self.scene)
+            self.scene = None
+
+    def _emit(self, sentence: str) -> None:
+        s = sentence.strip()
+        if not s:
+            return
+        if self.scene:
+            s, self.scene = f"{self.scene}\n{s}", None
+        self.on_text(s)
+
+
 def parse_stream(lines: Iterable[str], on_text: Callable[[str], None]) -> Result:
-    """stream-json の行を読み、文が届くたびに on_text を呼ぶ"""
+    """stream-json の行を読み、文が届くたびに on_text を呼ぶ
+
+    --include-partial-messages のときは、文字が少しずつ（text_delta）届くので、1文できるたびに渡す。
+    そのあと同じ中身が assistant でまとめて届くので、それは話さない（記録にだけ残す）。
+    """
     res = Result()
     tools: list[str] = []
+    sents = Sentences(on_text)
+    streamed = False  # 今の塊（content block）の文字を、少しずつ受け取って話したか
     for line in lines:
         line = line.strip()
         if not line:
@@ -202,15 +267,29 @@ def parse_stream(lines: Iterable[str], on_text: Callable[[str], None]) -> Result
             continue
         if ev.get("session_id"):
             res.session_id = ev["session_id"]
-        if ev.get("type") == "assistant":
+        if ev.get("type") == "stream_event":
+            e = ev.get("event") or {}
+            if e.get("type") == "content_block_start":
+                sents.finish()
+                streamed = False
+            elif e.get("type") == "content_block_delta" and (e.get("delta") or {}).get("type") == "text_delta":
+                streamed = True
+                sents.feed(e["delta"].get("text", ""))
+            elif e.get("type") in ("content_block_stop", "message_stop"):
+                sents.finish()
+        elif ev.get("type") == "assistant":
             for block in ev.get("message", {}).get("content", []):
                 if block.get("type") == "tool_use":
                     tools.append(block.get("name", ""))
                 if block.get("type") == "text" and block.get("text", "").strip():
                     text = block["text"].strip()
                     res.spoken.append(text)
-                    on_text(text)
+                    if streamed:
+                        sents.finish()  # 少しずつ話した分の残りを話す（同じ文は2回言わない）
+                    else:
+                        on_text(text)
         elif ev.get("type") == "result":
+            sents.finish()
             res.is_error = bool(ev.get("is_error")) or ev.get("subtype") != "success"
             u = ev.get("usage") or {}
             res.usage = {
@@ -228,6 +307,7 @@ def parse_stream(lines: Iterable[str], on_text: Callable[[str], None]) -> Result
             if final and final not in res.spoken:
                 res.spoken.append(final)
                 on_text(final)
+    sents.finish()
     if not res.answer and res.spoken:
         res.answer = res.spoken[-1]
     return res

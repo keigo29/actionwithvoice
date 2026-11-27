@@ -105,7 +105,9 @@ DEFAULTS: dict = {
     # 天気の場所（open-meteo）
     "weather": {"place": "横浜", "latitude": 35.44, "longitude": 139.64},
     # 会話の記録。Data/voice/ にすると Cmd の Actions がデイリーに書き足すので、別の場所に置く
-    "log": {"enabled": True, "push": True, "dir": "Data/ray"},
+    # 決まった頼みごと（やることの追加・体の記録・予定の確認）を、Claude を呼ばずに Ray が片づける（actions.py）
+    "actions": {"enabled": True, "push": True},
+    "log": {"enabled": True, "push": True, "dir": "Data/ray", "push_delay": 60},
     # n8n などから Ray に話させる受け口（POST http://127.0.0.1:{ui.port}/notify）。token が空なら受け付けない
     # wait_sec：会話の途中なら終わるまで待つ。これより長く待ったら捨てる
     # listen：Mac の外（Tailscale の IP など）からも受けるとき、その IP。受けるのは /notify だけ

@@ -256,7 +256,7 @@ class PresentTest(unittest.TestCase):
         ans = '@画面 todos\nひとつめ。\n@画面 habits\nふたつめ。'
         a, b, s, hub, shown = self.make([ans])
         orig = s.say
-        s.say = lambda t: (orig(t), a.cut.set())  # 1つ目を話した直後にキーを押した
+        s.say = lambda t, on_start=None: (orig(t, on_start), a.cut.set())  # 1つ目を話した直後にキーを押した
         a.handle_text("やることは？")
         self.assertEqual(s.said, ["ひとつめ。"])
 

@@ -16,6 +16,7 @@ JST = timezone(timedelta(hours=9))
 def cfg(**over):
     c = config.load("/nonexistent.toml")
     c["cmd_dir"] = over.pop("cmd_dir", "/tmp")
+    c["actions"] = {"enabled": False, "push": False}  # 会話の流れのテストでは、決まった頼みごとも頭脳に渡す（actions は test_actions で）
     c.update(over)
     return c
 
@@ -276,8 +277,11 @@ class FakeSpeaker:
         self.said = []
         self.stopped = 0
 
-    def say(self, t):
-        self.said.append(t)
+    def say(self, t, on_start=None):
+        if on_start:
+            on_start()  # 本物は鳴り始めに呼ぶ。テストではすぐ
+        if t:
+            self.said.append(t)
 
     def stop(self):
         self.stopped += 1

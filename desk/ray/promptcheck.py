@@ -55,12 +55,14 @@ def _total_in(u: dict) -> int:
 
 def analyze(rows: list[dict]) -> dict:
     claude = [d["usage"] for d in rows if d.get("brain") == "claude" and isinstance(d.get("usage"), dict)]
-    gemini = [d["usage"] for d in rows if d.get("brain") not in ("claude", "codex", "local", "canned", "n8n")
+    gemini = [d["usage"] for d in rows if d.get("brain") not in ("claude", "codex", "local", "canned", "n8n", "ray")
               and isinstance(d.get("usage"), dict)]
     rws = [d["rewrite"] for d in rows if isinstance(d.get("rewrite"), dict)]
     llm = [r for r in rws if "ms" in r]  # 7B を呼んだもの
     applied = [r for r in llm if r.get("applied")]
+    acts = Counter((d.get("action") or {}).get("name") or "?" for d in rows if d.get("brain") == "ray")
     out = {
+        "actions": acts,
         "records": len(rows),
         "brains": Counter(d.get("brain") or "?" for d in rows),
         "claude": {
@@ -135,6 +137,10 @@ def report(a: dict, days: int) -> str:
     c, g, r = a["claude"], a["gemini"], a["rewrite"]
     lines = [f"■ プロンプトの効率（直近{days}日・{a['records']}件）",
              "答えた頭脳：" + "、".join(f"{k} {v}" for k, v in a["brains"].most_common()), ""]
+    if a.get("actions"):
+        names = {"todo": "やることの追加", "record": "体の記録", "schedule": "予定の確認", "undo": "取り消し"}
+        lines += [f"■ Ray が自分で片づけた（Claude を呼ばなかった）{sum(a['actions'].values())}件",
+                  "  " + "、".join(f"{names.get(k, k)} {v}" for k, v in a["actions"].most_common()), ""]
     if c["n"]:
         lines += [f"■ Claude（記録あり {c['n']}件・続きの会話 {c['resumed']}件）",
                   f"  入力 平均{c['input']:,.0f}トークン（キャッシュに書いた {c['cache_write']:,.0f}・読んだ {c['cache_read']:,.0f}）",

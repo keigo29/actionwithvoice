@@ -171,14 +171,24 @@ class Speaker:
         else:
             threading.Thread(target=self._run, daemon=True).start()
 
-    def say(self, text: str) -> None:
+    def say(self, text: str, on_start: Callable[[], None] | None = None) -> None:
+        """順番待ちに入れる。on_start は、その文が鳴り始めるときに呼ぶ（画面を声に合わせて切り替えるため）。
+        文が空でも on_start があれば、前の文が鳴り終わった所で呼ぶ"""
         text = clean_for_speech(text)
-        if text:
+        if text or on_start:
             with self.lock:
                 self.pending += 1
                 self.idle.clear()
                 gen = self.gen
-            self.q.put((gen, text))
+            self.q.put((gen, text, on_start))
+
+    @staticmethod
+    def _started(on_start) -> None:
+        if on_start:
+            try:
+                on_start()
+            except Exception as e:  # 画面の失敗で、読み上げは止めない
+                print(f"画面を切り替えられませんでした：{e}")
 
     def _done_one(self, gen: int) -> None:
         """1文を鳴らし終えた（stop() の前の番号のものは数えない）"""
@@ -199,9 +209,11 @@ class Speaker:
     def _run(self) -> None:
         """書き出さずに say で直接読み上げる（これまでの形）"""
         while True:
-            gen, text = self.q.get()
+            gen, text, on_start = self.q.get()
             if gen == self.gen:
-                self._speak_direct(text)
+                self._started(on_start)
+                if text:
+                    self._speak_direct(text)
             self._done_one(gen)
 
     def _start_voicevox(self) -> None:
@@ -234,8 +246,11 @@ class Speaker:
     def _synth_loop(self) -> None:
         n = 0
         while True:
-            gen, text = self.q.get()
+            gen, text, on_start = self.q.get()
             if gen != self.gen:
+                continue
+            if not text:  # 声のない区切り（画面だけ）：鳴らす順番が来たら呼ぶ
+                self.ready.put((gen, "", None, None, on_start))
                 continue
             n += 1
             path = str(self.tmp / f"{n % 8}.wav")
@@ -251,13 +266,16 @@ class Speaker:
                 env = envelope(path) if ok and os.path.exists(path) else None
             except Exception as e:  # 書き出せなくても、読み上げは止めない
                 print(f"声の書き出しに失敗しました（そのまま読み上げます）：{e}")
-            self.ready.put((gen, text, path if env else None, env))
+            self.ready.put((gen, text, path if env else None, env, on_start))
 
     def _play_loop(self) -> None:
         while True:
-            gen, text, path, env = self.ready.get()
+            gen, text, path, env, on_start = self.ready.get()
             if gen == self.gen:
-                if path:
+                self._started(on_start)
+                if not text:
+                    pass
+                elif path:
                     try:
                         if self.on_voice:
                             self.on_voice(env, LIPSYNC_STEP_MS)
