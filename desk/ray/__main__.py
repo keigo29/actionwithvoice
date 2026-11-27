@@ -350,7 +350,7 @@ def main(argv=None) -> int:
         return 0
     if a.text:
         class Silent:
-            def say(self, t): pass
+            def say(self, t, on_start=None): on_start and on_start()
             def stop(self): pass
             def wait(self, timeout=None): return True
 

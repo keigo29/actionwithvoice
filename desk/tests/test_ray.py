@@ -277,8 +277,11 @@ class FakeSpeaker:
         self.said = []
         self.stopped = 0
 
-    def say(self, t):
-        self.said.append(t)
+    def say(self, t, on_start=None):
+        if on_start:
+            on_start()  # 本物は鳴り始めに呼ぶ。テストではすぐ
+        if t:
+            self.said.append(t)
 
     def stop(self):
         self.stopped += 1

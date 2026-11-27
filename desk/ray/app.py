@@ -60,6 +60,7 @@ class Assistant:
         self.busy = threading.Event()
         self.deck: list[scenes.Scene] = []  # 今の返事の場面
         self.pos = -1                        # 今見せている場面
+        self.upto = -1                       # 読み上げの順番待ちに入れた、いちばん後の場面
         self.cut = threading.Event()         # 割り込まれた（キーを押した）
         self.gen = 0                         # キーを押すたびに増やす。聞き取りの途中で次が来たら、前の分は捨てる
         self.rest: list[str] = []            # 決まった文の数を超えて、まだ話していない文
@@ -142,7 +143,7 @@ class Assistant:
                     self.hub.set(state="speaking", text=said)
                     self.speaker.say(said)
             if budget.overflow and not self.cut.is_set():
-                if self.deck and self.pos < len(self.deck) - 1:
+                if self.deck and self.upto < len(self.deck) - 1:
                     self.speaker.say(MORE_SCENES)
                 else:
                     self.rest = budget.rest
@@ -242,8 +243,9 @@ class Assistant:
             if not said:
                 return
             print(f"🔊 {said}")
-            self.hub.set(state="speaking", text=said)
-            self.speaker.say(said)
+            if new_deck:  # 場面のあとに続いた文（文ごとに届く）：その場面の話す文に足す（「もう一回」で同じに話せるように）
+                new_deck[-1].speech = guard.join([new_deck[-1].speech, said])
+            self._say_plain(said)
 
         hit = None if (self.awaiting_confirm or confirmed) else canned.find(question, canned.dirs_for(self.cfg))
         done = None if (hit or self.awaiting_confirm or confirmed) else self.actions.run(question)
@@ -264,7 +266,7 @@ class Assistant:
             self.last_qa = (question, raw)
         res.answer = guard.to_japanese(scenes.strip_directives(raw)) or raw
         if budget.overflow and not self.cut.is_set() and not res.is_error:
-            if self.deck and self.pos < len(self.deck) - 1:
+            if self.deck and self.upto < len(self.deck) - 1:
                 self.speaker.say(MORE_SCENES)
             else:
                 self.rest = budget.rest
@@ -367,22 +369,33 @@ class Assistant:
         self.on_screen = kind
 
     def _play(self, start: int, stop: int | None = None, budget: guard.Budget | None = None) -> None:
-        """start の場面から順に、話し終えるのを待ちながら進める。budget があれば、その文の数まで"""
+        """start の場面から順に、読み上げの順番待ちに入れる。budget があれば、その文の数まで
+
+        話し終わるのは待たない（次の場面の声を、今の場面を話している間に作っておくため。場面の間に間があかない）。
+        画面は、その場面の声が鳴り始めたときに切り替える。待つのは呼んだ側（speaker.wait）"""
         end = len(self.deck) if stop is None else min(stop, len(self.deck))
+        deck = self.deck
         for i in range(start, end):
             if self.cut.is_set():
                 return
-            text = self.deck[i].speech
+            text = deck[i].speech
             if budget is not None and text:
                 text = budget.take(text, opener_ok=False)  # 場面の文は全部数える
                 if not text:
                     return  # 決まった文の数を話し終えた。残りの場面は「次」で
-            self.pos = i
-            self._show(i)
+            self.upto = i
+
+            def show(i=i):
+                if self.deck is deck and not self.cut.is_set():
+                    self.pos = i
+                    self._show(i)
             if text:
                 print(f"🔊 {text}")
-                self.speaker.say(text)
-                self.speaker.wait(timeout=120)
+            self.speaker.say(text or "", on_start=show)
+
+    def _say_plain(self, said: str) -> None:
+        """場面の指示のない文。字幕は、その文が鳴り始めたときに変える"""
+        self.speaker.say(said, on_start=lambda: self.hub.set(state="speaking", text=said))
 
     def _navigate(self, question: str) -> bool:
         q = question.strip()
