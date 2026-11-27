@@ -16,6 +16,7 @@ JST = timezone(timedelta(hours=9))
 def cfg(**over):
     c = config.load("/nonexistent.toml")
     c["cmd_dir"] = over.pop("cmd_dir", "/tmp")
+    c["actions"] = {"enabled": False, "push": False}  # 会話の流れのテストでは、決まった頼みごとも頭脳に渡す（actions は test_actions で）
     c.update(over)
     return c
 

@@ -28,6 +28,7 @@ class Template:
     name: str                       # todo / record / schedule
     prompt: str                     # Claude に渡す依頼
     slots: dict = field(default_factory=dict)   # 抜き出した中身（ログ用）
+    lines: list = field(default_factory=list)   # そのまま書く行（記録。Ray が自分で書くとき用）
 
 
 def _n(text: str) -> str:
@@ -58,7 +59,7 @@ def _projects(text: str, root: Path) -> list[str]:
 # ---------------------------------------------------------------- 1. やることの追加
 
 _DEST = r"(?:AIに頼(?:みたい|む)こと(?:リスト)?|頼みたいこと(?:リスト)?|やること(?:リスト)?|ToDo(?:リスト)?|タスク(?:リスト)?|インボックス|inbox)"
-_ADD = r"(?:追加|入れ|足し|足す|送っ|送る|書い|書き|書く|登録|積ん)"
+_ADD = r"(?:追加|入れ|足し|足す|送っ|送る|書い|書き|書く|登録|積ん)(?![をがはの])"  # 「資料を送るを追加」の「送るを」は頼みの言葉ではない
 _TODO_A = re.compile(_DEST + r"(?:に|へ)[、\s]*(.+?)(?:を|って)[、\s]*" + _ADD, re.I)
 _TODO_B = re.compile(r"(?:^|[、。\s])([^、。]+?)を[、\s]*" + _DEST + r"(?:に|へ)[、\s]*" + _ADD, re.I)
 _VAGUE = re.compile(r"^(?:これ|それ|あれ|さっきの|今の|その|この)(?:こと|やつ|話|件)?$")
@@ -150,7 +151,7 @@ def record(text: str, root: Path, now: datetime) -> Template | None:
         f"読むのは書く先のファイルだけ。{SYNC}",
         "終わったら、書いた内容を短く伝える（睡眠時間を聞かれていたら、その時間も言う）。",
     ]
-    return Template("record", "\n".join(lines), slots)
+    return Template("record", "\n".join(lines), slots, entries)
 
 
 # ---------------------------------------------------------------- 3. 予定の確認
@@ -168,14 +169,14 @@ def schedule(text: str, root: Path, now: datetime) -> Template | None:
         return None
     today = now.date()
     days = _dates(t, now)
-    want = "その日の予定を、時刻の順に答える"
+    want, mode = "その日の予定を、時刻の順に答える", "day"
     if (w := _WEEK.search(t)) and not days:
         start = today - timedelta(days=today.weekday()) + timedelta(weeks={"今週": 0, "来週": 1, "再来週": 2}[w.group(1)])
         days = [start + timedelta(days=i) for i in range(7)]
-        want = "その週の予定を、日にちの順に答える"
+        want, mode = "その週の予定を、日にちの順に答える", "week"
     elif _NEXT.search(t) and not days:
         days = [today, today + timedelta(days=1)]
-        want = f"今（{now.hour}:{now.minute:02d}）より後で、いちばん近い予定を答える"
+        want, mode = f"今（{now.hour}:{now.minute:02d}）より後で、いちばん近い予定を答える", "next"
     elif not days:
         days = [today]
     days = days[:7]
@@ -190,7 +191,7 @@ def schedule(text: str, root: Path, now: datetime) -> Template | None:
         "予定の形：`- HH:MM 内容` か `- HH:MM-HH:MM 内容`（デイリーの `## 予定` の下か、日付の見出しの下）",
         f"答えること：{want}。予定が無ければ、無いと短く言う",
     ]
-    return Template("schedule", "\n".join(lines), {"dates": [d.isoformat() for d in days]})
+    return Template("schedule", "\n".join(lines), {"dates": [d.isoformat() for d in days], "mode": mode})
 
 
 RULES = (todo, record, schedule)  # 先にあるほど優先（「予定をやることに追加」は todo）

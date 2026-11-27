@@ -10,7 +10,7 @@ from pathlib import Path
 
 import re
 
-from . import canned, cmdlog, guard, scenes, shots, speech, stt, visuals
+from . import actions, canned, cmdlog, guard, scenes, shots, speech, stt, visuals
 from .audio import MIN_SEC, duration, save_wav
 from .brain import RESET_RE, Result, classify_reply, is_confirm
 
@@ -68,6 +68,8 @@ class Assistant:
         self.notices: queue.Queue = queue.Queue()  # n8n などから来た知らせ。会話が終わってから話す
         self.notice_thread: threading.Thread | None = None
         self.follow = None  # ボタンなしで聞く関数（should_stop を受けて、録った音を返す）。None なら使わない
+        self.actions = actions.Actions(cfg)  # 決まった頼みごとを、Claude を呼ばずに片づける
+        cmdlog.SYNC.busy = lambda: self.busy.is_set() or self.hub.state.get("state") not in ("idle", "confirm")
 
     # --- 割り込み（キーを押した・呼ばれた） ---
     def interrupt(self) -> None:
@@ -244,15 +246,21 @@ class Assistant:
             self.speaker.say(said)
 
         hit = None if (self.awaiting_confirm or confirmed) else canned.find(question, canned.dirs_for(self.cfg))
+        done = None if (hit or self.awaiting_confirm or confirmed) else self.actions.run(question)
         if hit:
             # 定番の返事：用意しておいたものをそのまま流す（Claude も Gemini も呼ばない）
             print(f"（定番の返事を使いました：{hit.name}）")
             on_text(hit.body)
             res = Result(answer=hit.body, by="canned")
+        elif done:
+            # 決まった頼みごと：Ray が自分で書いた・読んだ（トークンを使わない）
+            print(f"（Ray が自分で片づけました：{done.log.get('name')}）")
+            on_text(done.text)
+            res = Result(answer=done.text, by="ray")
         else:
             res = self.brain.ask(prompt, on_text, session_id=session, confirmed=confirmed)
         raw = res.answer
-        if not res.is_error and not hit:
+        if not res.is_error and not hit and not done:
             self.last_qa = (question, raw)
         res.answer = guard.to_japanese(scenes.strip_directives(raw)) or raw
         if budget.overflow and not self.cut.is_set() and not res.is_error:
@@ -270,7 +278,8 @@ class Assistant:
         self.log(self.cfg, question, res.answer,
                  extra={"raw": raw if raw.strip() != res.answer else "", "trimmed": budget.overflow,
                         "brain": getattr(res, "by", ""), "rewrite": getattr(res, "rewrite", None),
-                        "search": getattr(res, "search", None), "usage": getattr(res, "usage", None)})
+                        "search": getattr(res, "search", None), "usage": getattr(res, "usage", None),
+                        "action": done.log if done else None})
         self.speaker.wait(timeout=120)
         extra = {}
         if self.awaiting_confirm:
