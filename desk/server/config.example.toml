@@ -1,0 +1,25 @@
+# サーバーの Ray の設定（setup.sh が desk/config.toml に写す。config.toml は Git に入れない）
+# 書いていないものは、Mac の Ray と同じ既定（desk/config.example.toml を参照）
+
+cmd_dir = "~/Cmd"            # このサーバーの Cmd のクローン（push できる状態にしておく）
+
+[server]
+listen = "127.0.0.1"         # このままにして、tailscale serve で Tailscale の中だけに https で開く
+port = 8765
+token = ""                   # iPhone で開くときの合言葉（16文字以上）。setup.sh が作る
+
+[local]
+enabled = false              # ローカル LLM は使わない（無料のサーバーには GPU が無く、遅すぎる）
+
+[self_improve]
+enabled = false              # サーバーでは、Ray が自分のコードを書きかえない
+
+[gemini]
+api_key = ""                 # 課金を設定していないプロジェクトの鍵（無料枠）。空なら Gemini の段は飛ばす
+
+[search]
+api_key = ""                 # Tavily の鍵。空なら調べものは Gemini の検索 → Claude
+
+[log]
+enabled = true
+push = true                  # 会話の記録を Cmd の Data/ray/ に置いて push（まとめて）

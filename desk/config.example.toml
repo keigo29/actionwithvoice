@@ -77,7 +77,7 @@ max_sec = 15
 enabled = true
 port = 8765
 open_browser = true
-theme = "neon"               # 画面の見た目。neon（暗い背景・オレンジの光）／blueprint（明るい設計図風）。画面で T キーでも切り替えられる
+theme = "blueprint"          # 画面の見た目。blueprint（明るい設計図風・既定）／neon（暗い背景・オレンジの光）。画面で T キーでも切り替えられる
 browser = "Safari"           # 画面を開くブラウザ（"Safari"・"Google Chrome" など）。"" ならふだん使うブラウザ
 
 [weather]

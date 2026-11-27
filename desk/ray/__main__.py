@@ -247,7 +247,7 @@ def run(cfg: dict, use_ui: bool) -> None:
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     log = start_log()
     hub = StateHub()
-    hub.set(theme=cfg["ui"].get("theme", "neon"))  # 画面の見た目（URL の ?theme= があれば、そちらが優先）
+    hub.set(theme=cfg["ui"].get("theme", "blueprint"))  # 画面の見た目（URL の ?theme= があれば、そちらが優先）
     log_states(hub)
     # 鳴らし始めに、声の大きさの並びを画面へ送る（円の内側の光を発音に合わせて光らせる）
     voice_no = iter(range(1, 10**9))
@@ -340,6 +340,7 @@ def main(argv=None) -> int:
     p.add_argument("--prompt-report", action="store_true", help="送ったプロンプトの効率を、記録からまとめる")
     p.add_argument("--days", type=int, default=7, help="--prompt-report で見る日数（既定7）")
     p.add_argument("--sync-workstation", metavar="DIR", help="Workstation のチェックアウトから、図を描く部分を写し直す")
+    p.add_argument("--server", action="store_true", help="サーバーの Ray として動く（マイク・スピーカーを使わず、iPhone の画面から使う）")
     a = p.parse_args(argv)
     if a.sync_workstation:
         from . import wsdiagram
@@ -348,6 +349,10 @@ def main(argv=None) -> int:
         return 0
     cfg = config_mod.load(a.config)
 
+    if a.server:
+        from . import server
+        server.run(cfg)
+        return 0
     if a.check:
         return 0 if check(cfg) else 1
     if a.prompt_report:

@@ -87,6 +87,14 @@ Claude 行きと決まった質問のうち、**長い発話**（60字以上）�
 - Claude は「こんにちは」だけでも約2.5万トークン読みます。ほとんどは Claude Code の決まった部分（道具の説明など）で、送る文は50トークンほどです。`[claude] tools` で Ray が使う道具だけにして、約1.2万に半減しました
 - 7B の言い換えは平均6.6秒・4割近く失敗し、依頼はむしろ長くなっていました。今は長い発話（60字以上）のときだけ 7B を使います。長い履歴だけのときは、7B を呼ばずにセッションを続けます。先に見るファイルは、7B を使わないときもコードで添えます（`[rewrite] llm_reasons`・`refs_always`）
 
+## iPhone から使う（サーバーの Ray）
+
+Ray の頭をサーバー（Oracle の無料枠など）に置くと、Mac を通さずに、iPhone の Safari で Ray の画面を開いて使えます。プレゼン形式（1文ずつ、その文の場面を出しながら話す）も同じです。聞き取りと読み上げは iPhone がします。入口は Tailscale の中だけで、合言葉でログインした人だけです。
+
+```sh
+python -m ray --server     # サーバーで。手順は server/README.md（setup.sh で常駐まで）
+```
+
 ## Ray から声をかける（朝・予定の前・夜）
 
 話しかけなくても、毎日かならず通る場面で Ray のほうから話します（`ray/routine.py`）。どれも Claude を呼ばず、コードだけで作ります。
@@ -355,6 +363,7 @@ python3 -m unittest discover -s tests -t .   # マイク・スピーカーなし
 | `ray/visuals.py` | 場面の絵のデータを Cmd から作る（カレンダー・やること・習慣など） |
 | `ray/shots.py` | ウェブページの写真（playwright があるとき。ブラウザは使い回す） |
 | `ray/cmdlog.py` | Q&A を Cmd の Data/ray/ に置いてコミット。push はまとめて（デイリーには入れない） |
+| `ray/server.py`・`server/` | サーバーの Ray（iPhone から使う）と、サーバーに入れる手順・スクリプト |
 | `ray/routine.py` | Ray から声をかける（朝のまとめ・予定の前・夜のふりかえり） |
 | `ray/actions.py` | 決まった頼みごと（やることの追加・体の記録・予定の確認）を、Claude を呼ばずに片づける |
 | `ray/wsdiagram.py` | Workstation の図解（描く部分・Mermaid の写し、Cmd の図のファイルを探す） |
