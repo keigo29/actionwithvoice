@@ -102,13 +102,14 @@ def cookies(headers) -> dict:
 
 def serve(hub: StateHub, port: int, on_notify: Callable[[str, str], int] | None = None,
           notify_cfg: dict | None = None, host: str = "127.0.0.1", notify_only: bool = False,
-          remote: dict | None = None) -> ThreadingHTTPServer:
+          remote: dict | None = None, local: dict | None = None) -> ThreadingHTTPServer:
     """状態の画面と知らせの受け口。notify_only なら POST /notify だけ受ける（Mac の外に開くとき用）
 
     remote（サーバーの Ray。iPhone から使う）：{"token", "ask"(文), "stop"()}。
     画面も含めて、合言葉でログインした人だけに見せる。POST /api/ask {"text"} で頼み、POST /api/stop で止める
+    local（机の Ray の入力欄）：{"ask"(文), "stop"()}。この Mac の画面から書いた文だけを受ける
     """
-    notify_cfg = notify_cfg or {}
+    notify_cfg =notify_cfg or {}
     want = session_value(remote["token"]) if remote else ""
 
     class Handler(BaseHTTPRequestHandler):
@@ -137,8 +138,7 @@ def serve(hub: StateHub, port: int, on_notify: Callable[[str, str], int] | None 
             self.wfile.write(body)
 
         def _remote_post(self, path: str) -> None:
-            n = min(int(self.headers.get("Content-Length") or 0), 65536)
-            body = self.rfile.read(n) if n > 0 else b""
+            body = self._body()
             if path == "/login":
                 given = urllib.parse.parse_qs(body.decode("utf-8", "replace")).get("token", [""])[0]
                 if not hmac.compare_digest(given.encode(), remote["token"].encode()):
@@ -155,8 +155,23 @@ def serve(hub: StateHub, port: int, on_notify: Callable[[str, str], int] | None 
             if not self._authed() or self.headers.get("X-Ray") != "1":
                 self._json(401, {"error": "ログインしてください"})
                 return
+            self._command(path, remote, body)
+
+        def _local_post(self, path: str) -> None:
+            # ほかのサイトから勝手に頼まれないよう、あて先が localhost で、決まったヘッダーがあるものだけ受ける
+            host = (self.headers.get("Host") or "").rsplit(":", 1)[0]
+            if host not in ("localhost", "127.0.0.1") or self.headers.get("X-Ray") != "1":
+                self._json(403, {"error": "この Mac の画面からだけ使えます"})
+                return
+            self._command(path, local, self._body())
+
+        def _body(self) -> bytes:
+            n = min(int(self.headers.get("Content-Length") or 0), 65536)
+            return self.rfile.read(n) if n > 0 else b""
+
+        def _command(self, path: str, to: dict, body: bytes) -> None:
             if path == "/api/stop":
-                remote["stop"]()
+                to["stop"]()
                 self._json(202, {"ok": True})
                 return
             try:
@@ -166,11 +181,14 @@ def serve(hub: StateHub, port: int, on_notify: Callable[[str, str], int] | None 
             if not text:
                 self._json(400, {"error": "text が空です"})
                 return
-            remote["ask"](text[:2000])
+            to["ask"](text[:2000])
             self._json(202, {"ok": True})
 
         def do_POST(self):
             path = self.path.split("?", 1)[0]
+            if local and not remote and path in ("/api/ask", "/api/stop"):
+                self._local_post(path)
+                return
             if remote and path in ("/login", "/api/ask", "/api/stop"):
                 self._remote_post(path)
                 return
@@ -204,6 +222,8 @@ def serve(hub: StateHub, port: int, on_notify: Callable[[str, str], int] | None 
                 body = PAGE.read_bytes()
                 if remote:  # iPhone から使う画面（話すボタン・iPhone で読み上げ）にする
                     body = body.replace(b"</head>", b"<script>window.RAY_REMOTE = true;</script>\n</head>", 1)
+                elif local:  # 机の Ray：書いて頼む入力欄を出す
+                    body = body.replace(b"</head>", b"<script>window.RAY_TYPING = true;</script>\n</head>", 1)
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))

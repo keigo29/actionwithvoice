@@ -267,7 +267,13 @@ def run(cfg: dict, use_ui: bool) -> None:
         if cfg["ui"].get("usage", True):
             UsageWatcher(hub, gemini=getattr(brain, "gemini", None), search=getattr(brain, "search", None)).start()
     if show or notify:
-        serve(hub, cfg["ui"]["port"], on_notify=assistant.notify if notify else None, notify_cfg=cfg["notify"])
+        local = None
+        if show:  # 画面の入力欄から、書いて頼めるようにする
+            from .server import TypedRay
+            typed = TypedRay(assistant)
+            local = {"ask": typed.ask, "stop": typed.stop}
+        serve(hub, cfg["ui"]["port"], on_notify=assistant.notify if notify else None, notify_cfg=cfg["notify"],
+              local=local)
     if notify:
         print(f"n8n からの知らせを受けます：POST http://127.0.0.1:{cfg['ui']['port']}/notify")
         listen = cfg["notify"].get("listen", "")

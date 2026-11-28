@@ -77,6 +77,21 @@ class RemoteRay:
         self.a.hub.set(state="idle", text="")
 
 
+class TypedRay(RemoteRay):
+    """机の Ray の入力欄からの頼み。声の頼みと同時に動かないよう、同じ作業の糸を使う"""
+
+    def ask(self, text: str) -> None:
+        with self.lock:
+            if self.a.busy.is_set() or (self.a.worker and self.a.worker.is_alive()):
+                self.a.interrupt()
+                if self.a.worker:
+                    self.a.worker.join(timeout=5)
+            else:
+                self.a.speaker.stop()
+            self.a.worker = threading.Thread(target=self._run, args=(text,), daemon=True)
+            self.a.worker.start()
+
+
 def run(cfg: dict) -> None:
     from .__main__ import make_brain
 

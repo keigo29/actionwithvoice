@@ -349,6 +349,17 @@
   body.remote #home, body.remote #stage { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
   body.remote #usage { display: none; }
   body.remote .diagram svg { max-height: calc(100dvh - 330px - env(safe-area-inset-bottom)); }  /* 下のボタンの列に隠れないように */
+  /* 机の Ray の入力欄（window.RAY_TYPING）。声は Mac が聞くので、マイクのボタンは出さない */
+  body.typing #remote { display: flex; position: fixed; left: 50%; transform: translateX(-50%); bottom: 14px; z-index: 20; gap: 10px;
+    align-items: center; width: min(640px, 80vw); }
+  body.typing #remote input { flex: 1; min-width: 0; font: 16px var(--font); color: var(--fg); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 999px; padding: 11px 16px; }
+  body.typing #remote button { flex: none; width: 44px; height: 44px; border-radius: 50%; border: 0; display: grid; place-items: center;
+    background: var(--panel2); color: var(--fg); }
+  body.typing #remote button.mic { display: none; }
+  body.typing #remote button svg { width: 22px; height: 22px; }
+  body.typing #home, body.typing #stage { padding-bottom: 80px; }
+  body.typing .diagram svg { max-height: calc(100dvh - 310px); }
   @media (max-width: 600px) {
     body.remote .hud { --size: min(58vw, 42vh); }
     body.remote header.bar .hud { --size: 44px; }
@@ -1116,6 +1127,20 @@ function setupRemote() {
   });
 }
 if (REMOTE) setupRemote();
+function setupTyping() {
+  document.body.classList.add("typing");
+  // 日本語の変換を決める Enter では送らない
+  $("ask").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.isComposing || e.keyCode === 229)) e.preventDefault(); });
+  $("remote").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = $("ask").value.trim();
+    if (!text) return;
+    $("ask").value = "";
+    post("/api/ask", { text });
+  });
+  $("stopbtn").addEventListener("click", () => post("/api/stop"));
+}
+if (window.RAY_TYPING && !REMOTE) setupTyping();
 
 function connect() {
   if (!window.EventSource || location.protocol === "file:") return;
