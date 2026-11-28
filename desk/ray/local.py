@@ -27,7 +27,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import visuals
+from . import recall, visuals
 from .brain import SCREEN_LITE, Result, classify_reply
 from .codex import CodexBrain, is_limit
 from .rewrite import Rewriter, tidy
@@ -806,7 +806,9 @@ class HybridBrain:
         # 外（Gemini）に渡すのは、Claude が答えたもの（お金・予定などを含みうる）を除いたやり取りだけ
         outside_ok = [(q, a) for q, a, by in self.history if by != "claude"]
 
-        reply = not confirmed and continues_claude(self.history, text)
+        # 「先ほどの話」：保存してある会話を読み直して、Claude にだけ渡す
+        past = recall.recent(self.cfg) if not confirmed and recall.wants(text) else []
+        reply = not confirmed and (bool(past) or continues_claude(self.history, text))
         # コードの話（と、Codex の問いかけへの返事）は、Claude より先に Codex へ。だめなら下で Claude
         if self.use_codex and not confirmed and not reply and (
                 is_code(text) or continues_claude(self.history, text, by="codex")):
@@ -883,7 +885,9 @@ class HybridBrain:
             if res:
                 return res
         prompt = text
-        if self.unseen and not confirmed:
+        if past:
+            prompt = recall.prompt(text, past)
+        elif self.unseen and not confirmed:
             lines = "\n".join(f"持ち主：{q}\nレイ：{a}" for q, a in self.unseen)
             prompt = f"（ここまでのやり取り）\n{lines}\n（今の質問）\n{text}"
         # Claude の起動には数秒かかるので、先にひとこと言って待たせる
@@ -895,7 +899,7 @@ class HybridBrain:
         session = self.claude_session
         # 「はい」「許可する」のような返事だけを飛ばす（「それでお店はどこ？」のような続きの質問は変換する）
         yes_no = reply and len(text.strip()) <= REPLY_MAX and classify_reply(text) != "other"
-        if not confirmed and not yes_no:
+        if not confirmed and not yes_no and not past:  # 読み直した会話は、縮めずに渡す
             # 参照先はコードのルールで決める（今の発話に無ければ、直前の質問から）
             # 下ごしらえした文で見る（言い直して消した日付や、呼びかけの「レイ」を拾わないため）
             now = self.rewriter.now()  # 変換と同じ「今」で日付を決める
